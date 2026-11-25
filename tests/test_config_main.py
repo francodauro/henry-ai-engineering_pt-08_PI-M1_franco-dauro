@@ -24,7 +24,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(s.providers["openai"].model, "gpt-6-luna")
         self.assertEqual(s.providers["openai"].reasoning_effort, "none")
         self.assertEqual((s.temperature, s.budget_usd), (0.0, 4.5))
-        self.assertEqual((s.prompt_version, s.contract_max_attempts), ("triage_v1", 3))
+        self.assertEqual((s.prompt_version, s.contract_max_attempts), ("triage_v4", 3))
 
     def test_proveedor_desconocido(self):
         with mock.patch.dict(os.environ, {"LLM_PROVIDER_ORDER": "gemini,anthropic"}, clear=True):
@@ -69,7 +69,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(json.loads(out), VALID)  # se puede leer directo, sin transformaciones
         self.assertEqual(err, "")
         line = json.loads(self.settings.metrics_path.read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual((line["prompt_version"], line["contract_valid"]), ("triage_v1", True))
+        self.assertEqual((line["prompt_version"], line["contract_valid"]), ("triage_v4", True))
 
     def test_detalle_con_costo_en_6_decimales(self):
         provider = FakeProvider("openai", "paid-model", [VALID], prompt_tokens=60, completion_tokens=24)

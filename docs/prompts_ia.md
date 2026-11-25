@@ -378,3 +378,7 @@ Moderador LLM, redacción de PII en la entrada, comparativa de modelos (paso 6).
   y dejar la PII de la entrada fuera de alcance; el alumno aprobó el prompt así.
 - Al implementar, pasar los 40 textos del dataset por la compuerta de entrada (sin llamar a la API) mostró un falso
   positivo heredado de la referencia (NX-030, "todos los usuarios"): se ajustó la regla antes de correr (D-35).
+- Cierre (D-42): `v4` cumplió las 6 condiciones. Las corridas sin guardrails quedaron incompletas porque el plan gratuito de
+  Gemini llegó a su límite diario; la IA lo confirmó leyendo la página de límites de Google AI Studio en el navegador (sin
+  tocar la facturación). El alumno eligió cerrar el paso con lo que decide el criterio y completar esas corridas después.
+  La IA redactó un borrador de la conclusión del README que el alumno revisó antes de commitear.
