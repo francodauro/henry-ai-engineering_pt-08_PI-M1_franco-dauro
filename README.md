@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 3 — dataset y evals.** La CLI devuelve el contrato validado con el prompt `triage_v1`, y la suite de evals mide su calidad sobre 40 casos. El proyecto se construye paso a paso.
+> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado; la suite de evals mide la calidad sobre 40 casos y compara `triage_v1` (zero-shot) contra `triage_v2` (few-shot). El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -130,7 +130,9 @@ Cómo mide:
 - **Un proveedor por corrida, sin respaldo**: el score es de un solo modelo.
 - **Exact match** de la categoría, global y por categoría, con un **umbral de 70 % por categoría** fijado antes de correr. Una categoría por debajo es una regresión.
 - **Plazos vagos**: si una sola respuesta para el cliente dice "a la brevedad", "en breve", "lo antes posible" u otra expresión de [src/vague_timing.py](src/vague_timing.py), también es una regresión, aunque la categoría sea correcta.
-- **Costo por acierto** = costo total ÷ aciertos. El reporte comprueba que el costo de la corrida coincide con la suma de `cost_usd` de sus líneas en `data/metrics.jsonl`.
+- **Score por lote**: `dev` sirve para diseñar un prompt y `holdout` para decidir, así una versión no se elige con los mismos casos con los que se ajustó.
+- **Casos inestables**: con varias corridas de la misma versión, el reporte marca los casos cuya categoría cambia entre corridas (ahí una diferencia puede ser azar).
+- **Costo por acierto** = costo total ÷ aciertos. El reporte comprueba que el costo de la corrida coincide con la suma de `cost_usd` de sus líneas en `data/metrics.jsonl`. Como Gemini cuesta 0, también se muestra el costo **proyectado** con los precios de `gpt-6-luna` (aproximado: cada proveedor cuenta los tokens distinto).
 - Si el proveedor no responde un caso (por ejemplo, "high demand"), se lo reintenta una vez al final. Si sigue sin respuesta, la corrida queda **incompleta** y no se usa para comparar.
 
 Cada corrida se guarda en su propio archivo en `evals/results/` (nunca se pisa) y el reporte va a [evals/reporte.md](evals/reporte.md). Códigos de salida: `0` completa sin regresiones · `1` completa con regresiones · `2` incompleta · `5` error de configuración o de datos.
@@ -157,6 +159,19 @@ Qué muestran los datos:
 **Conclusión:** Con `triage_v1`, Gemini y `gpt-6-luna` clasifican igual: 98 % global, todas las categorías por encima del 70 % y el mismo único error (NX-008, un cambio de plan con cobro de la diferencia, que los dos mandan a `other`). Como el error se repite con los dos modelos, es un problema del prompt, no del modelo. La diferencia está en la respuesta al cliente: Gemini escribió "a la brevedad" una vez, y con mi regla (cero plazos vagos) eso es una regresión. `gpt-6-luna` pasó todas las reglas, pero cuesta USD 0.000146 por acierto (unos USD 1,71 por mes a 12.000 consultas), contra USD 0 de Gemini.
 
 **Decisión:** Gemini sigue como proveedor primario y `gpt-6-luna` como respaldo. Un plazo vago en 40 respuestas, con una sola corrida por modelo, no alcanza para pagar por un modelo que clasifica igual. Además, el problema está en el prompt y se ataca en el prompt y en el código. `triage_v1` queda como línea base **con una regresión pendiente**. En el paso 4, `triage_v2` tiene que resolver NX-008 sin perder el resto. En el paso 5, el guardrail de salida tiene que garantizar en código que ninguna respuesta lleve un plazo vago, porque el prompt solo no lo garantiza.
+
+## Técnica elegida y por qué
+
+| Versión | Técnica | Qué cambia |
+|---|---|---|
+| [`triage_v1`](prompts/triage_v1.yaml) | Zero-shot con los 4 principios de la M1L2 (rol, contexto, tarea, formato) + contrato por tool calling | Línea base |
+| [`triage_v2`](prompts/triage_v2.yaml) | Few-shot: `v1` + un par de ejemplos de contraste | Dos ejemplos del mismo tema con distinta intención: pedir un cambio en lo que ya se contrata es `billing`; preguntar solo un precio es `other` |
+
+Por qué few-shot: el único error de `v1` (NX-008) se repitió con los dos modelos, así que es del prompt. La M1L2 recomienda, para un caso mal clasificado, mostrar un ejemplo corregido de esa misma ambigüedad. Chain-of-thought quedó afuera porque el razonamiento necesita un campo donde escribirse y el contrato no se cambia. Los ejemplos no son casos del dataset: si lo fueran, el examen traería la respuesta.
+
+Criterio fijado antes de correr (sobre dos corridas con Gemini por versión): `v2` queda vigente si su holdout y su global no son menores que los de `v1`, ninguna categoría queda bajo 70 %, no tiene más plazos vagos que `v1` y acierta NX-008 en sus dos corridas. Si no, sigue `v1`, que es más simple y barata.
+
+Resultados: pendientes de las corridas del paso 4.
 
 ## Estructura
 

@@ -48,7 +48,7 @@ from src.metrics import MetricsLog
 from src.prompts import PromptError, PromptTemplate, load_prompt
 from src.triage import ContractError, triage
 
-from .metricas import CONTRATO_INVALIDO, ERROR_API, OK, exact_match, resumir
+from .metricas import CONTRATO_INVALIDO, ERROR_API, MODELO_REF, OK, exact_match, resumir
 from .reporte import generar_reporte
 
 DATASET_PATH = PROJECT_ROOT / "evals" / "dataset.jsonl"
@@ -272,9 +272,17 @@ def costos_en_metrics(metrics: MetricsLog, corridas: list[str]) -> dict[str, flo
     return costos
 
 
+def precio_referencia(pricing_path: Path) -> dict[str, float] | None:
+    """Precio de ``MODELO_REF`` en ``config/pricing.json``, para proyectar el costo. ``None`` si no está."""
+    try:
+        return Pricing(pricing_path).price(MODELO_REF)
+    except (PricingError, OSError, KeyError):
+        return None
+
+
 def escribir_reporte(corridas: list[list[dict]], casos: list[dict], dataset_path: Path, metrics: MetricsLog,
-                     reporte_path: Path) -> list[dict]:
-    resumenes = [resumir(r) for r in corridas]
+                     reporte_path: Path, precio_ref: dict[str, float] | None = None) -> list[dict]:
+    resumenes = [resumir(r, precio_ref) for r in corridas]
     costos = costos_en_metrics(metrics, [r["corrida"] for r in resumenes])
     texto = generar_reporte(resumenes, describir_dataset(casos, dataset_path), costos)
     reporte_path.parent.mkdir(parents=True, exist_ok=True)
@@ -306,7 +314,8 @@ def imprimir_resumen(resumenes: list[dict], reporte_path: Path) -> None:
     for r in resumenes:
         cats = " · ".join(f"{c} {d['score']:.0%}" for c, d in r["por_categoria"].items())
         costo = "—" if r["costo_por_acierto"] is None else f"USD {r['costo_por_acierto']:.6f}"
-        print(f"\n{r['corrida']}: global {r['score']:.0%} ({r['aciertos']}/{r['n']}) · {cats}")
+        lotes = " · ".join(f"{l} {d['score']:.0%}" for l, d in r["por_lote"].items() if d["score"] is not None)
+        print(f"\n{r['corrida']}: global {r['score']:.0%} ({r['aciertos']}/{r['n']}) · {cats} · {lotes}")
         print(f"  plazos vagos: {len(r['plazos_vagos'])} · costo total USD {r['costo_total']:.6f} · costo por acierto {costo}")
         if not r["completa"]:
             print(f"  INCOMPLETA: sin respuesta en {', '.join(r['errores_api'])}. Volvé a correrla; no se usa para comparar.")
@@ -331,7 +340,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.desde:
             corridas = [leer_corrida(p) for p in expandir(args.desde)]
-            resumenes = escribir_reporte(corridas, casos, DATASET_PATH, metrics, reporte_path)
+            resumenes = escribir_reporte(corridas, casos, DATASET_PATH, metrics, reporte_path,
+                                         precio_referencia(settings.pricing_path))
             imprimir_resumen(resumenes, reporte_path)
             return codigo_salida(resumenes)
 
@@ -362,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
 
     path = guardar_corrida(registros, corrida)
     print(f"Corrida guardada en {path}")
-    resumenes = escribir_reporte([registros], casos, DATASET_PATH, metrics, reporte_path)
+    resumenes = escribir_reporte([registros], casos, DATASET_PATH, metrics, reporte_path, pricing.price(MODELO_REF))
     imprimir_resumen(resumenes, reporte_path)
     return codigo_salida(resumenes)
 

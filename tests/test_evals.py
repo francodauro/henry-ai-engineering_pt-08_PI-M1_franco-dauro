@@ -5,14 +5,14 @@ from datetime import datetime
 from pathlib import Path
 
 from evals import runner
-from evals.metricas import CONTRATO_INVALIDO, ERROR_API, OK, costo_por_acierto, exact_match, resumir
+from evals.metricas import CONTRATO_INVALIDO, ERROR_API, OK, comparar_versiones, costo_por_acierto, exact_match, resumir
 from evals.reporte import generar_reporte
 from src.config import PROJECT_ROOT
 from src.costs import Pricing
 from src.llm.base import AuthError, ServerError
 from src.llm.router import Router
 from src.metrics import MetricsLog
-from src.prompts import load_prompt
+from src.prompts import load_prompt, render_system
 from src.vague_timing import find_vague_timing
 from tests.fakes import FakeProvider, temp_dir, write_pricing
 
@@ -27,8 +27,8 @@ def caso(id_, categoria, texto="consulta de prueba"):
     return {"id": id_, "texto": texto, "categoria_esperada": categoria, "dificultad": "facil", "lote": "dev", "nota": "x"}
 
 
-def registro(caso_id, esperada, obtenida, answer="Lo revisa el equipo.", estado=OK, costo=0.0):
-    return {"corrida": "c1", "proveedor": "gemini", "modelo": "free-model", "version_prompt": "triage_v1",
+def registro(caso_id, esperada, obtenida, answer="Lo revisa el equipo.", estado=OK, costo=0.0, lote="dev"):
+    return {"corrida": "c1", "proveedor": "gemini", "modelo": "free-model", "version_prompt": "triage_v1", "lote": lote,
             "caso_id": caso_id, "categoria_esperada": esperada, "categoria_obtenida": obtenida, "answer": answer,
             "estado": estado, "costo_usd": costo, "input_tokens": 10, "output_tokens": 5, "latencia_s": 1.0}
 
@@ -128,6 +128,68 @@ class TestMetricas(unittest.TestCase):
         r = resumir([registro("B1", "billing", "billing", costo=0.002), registro("B2", "billing", "other", costo=0.001)])
         self.assertAlmostEqual(r["costo_total"], 0.003)
         self.assertAlmostEqual(r["costo_por_acierto"], 0.003)
+
+
+class TestPaso4(unittest.TestCase):
+    PRECIO_REF = {"input": 0.10, "output": 0.50}
+
+    def corrida(self, nombre, version, obtenida_b0="billing"):
+        regs = [registro(f"{c}{i}", c, c, lote="dev" if i == 0 else "holdout")
+                for c in ("billing", "technical", "account", "other") for i in range(2)]
+        regs[0]["categoria_obtenida"] = obtenida_b0
+        for r in regs:
+            r.update(corrida=nombre, version_prompt=version)
+        return regs
+
+    def test_score_por_lote_y_costo_proyectado(self):
+        r = resumir(self.corrida("a", "triage_v1", obtenida_b0="other"), self.PRECIO_REF)
+        self.assertEqual(r["por_lote"]["dev"], {"n": 4, "aciertos": 3, "score": 0.75})
+        self.assertEqual(r["por_lote"]["holdout"]["score"], 1.0)
+        # 8 casos × (10 tokens de entrada, 5 de salida) con los precios de gpt-6-luna
+        self.assertAlmostEqual(r["costo_proyectado"], 80 / 1e6 * 0.10 + 40 / 1e6 * 0.50)
+        self.assertAlmostEqual(r["costo_por_acierto_proyectado"], r["costo_proyectado"] / 7)
+        self.assertIsNone(resumir(self.corrida("a", "triage_v1"))["costo_proyectado"])
+
+    def test_comparar_versiones_promedia_y_marca_inestables(self):
+        resumenes = [resumir(self.corrida("v1a", "triage_v1", "other"), self.PRECIO_REF),
+                     resumir(self.corrida("v1b", "triage_v1", "other"), self.PRECIO_REF),
+                     resumir(self.corrida("v2a", "triage_v2", "billing"), self.PRECIO_REF),
+                     resumir(self.corrida("v2b", "triage_v2", "other"), self.PRECIO_REF)]
+        v1, v2 = comparar_versiones(resumenes)
+        self.assertEqual((v1["version_prompt"], v1["corridas"], v1["inestables"]), ("triage_v1", 2, []))
+        self.assertEqual(v1["por_lote"]["dev"], 0.75)
+        self.assertEqual(v1["errores"], ["billing0"])
+        self.assertEqual(v2["inestables"], ["billing0"])  # acertó en una corrida y no en la otra: azar
+        self.assertEqual(v2["por_lote"]["dev"], 0.875)
+
+    def test_comparar_ignora_incompletas(self):
+        regs = self.corrida("x", "triage_v1")
+        regs[0]["estado"] = ERROR_API
+        self.assertEqual(comparar_versiones([resumir(regs)]), [])
+
+    def test_reporte_tiene_lotes_y_comparacion(self):
+        resumenes = [resumir(self.corrida("v1a", "triage_v1", "other"), self.PRECIO_REF),
+                     resumir(self.corrida("v2a", "triage_v2"), self.PRECIO_REF)]
+        texto = generar_reporte(resumenes, TestReporte.DATASET, {})
+        self.assertIn("| dev | holdout |", texto)
+        self.assertIn("## 4. Comparación por versión y proveedor", texto)
+        self.assertIn("| triage_v2 | gemini | 1 | 100% | 100% | 100% |", texto)
+        self.assertIn("Costo por acierto proyectado con gpt-6-luna", texto)
+
+    def test_v2_es_v1_mas_el_par_de_contraste(self):
+        v1, v2 = load_prompt("v1", PROMPTS), load_prompt("v2", PROMPTS)
+        self.assertEqual(v2.version, "triage_v2")
+        self.assertEqual(v2.user, v1.user)
+        self.assertIn('"billing"', render_system(v2))
+        self.assertIn("¿Qué precio tiene el módulo de facturación?", v2.system)
+        # Un solo cambio: quitando el bloque de ejemplos, v2 es igual a v1.
+        bloque = v2.system[v2.system.index("Ejemplos del límite"):v2.system.index("Respuesta para el cliente:")]
+        self.assertEqual(v2.system.replace(bloque, ""), v1.system)
+
+    def test_ejemplos_no_son_casos_del_dataset(self):
+        system = load_prompt("v2", PROMPTS).system
+        for c in runner.cargar_dataset():
+            self.assertNotIn(c["texto"], system)
 
 
 class TestRunner(unittest.TestCase):

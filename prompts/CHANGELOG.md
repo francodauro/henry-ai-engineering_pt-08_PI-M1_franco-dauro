@@ -2,6 +2,13 @@
 
 Cada versión es un archivo nuevo en `prompts/` y nunca se edita. Para cada una: qué cambió, por qué y con qué resultado.
 
+## triage_v2 — 2026-11-25
+
+- **Cambio:** `v1` + un par de ejemplos de contraste entre `billing` y `other` (few-shot, M1L2). Es el único cambio.
+- **Por qué:** el único error de `v1` en el paso 3 fue NX-008 ("pasar del plan Básico al Pro… ¿cuánto me cobran la diferencia?"), y se repitió con Gemini y con `gpt-6-luna`: el prompt no marca el límite entre pedir un cambio en lo que ya se paga (`billing`) y preguntar un precio (`other`). Los ejemplos muestran ese límite con un tema distinto (un módulo), para no copiar casos del dataset.
+- **Resultado esperado:** NX-008 correcto en las dos corridas de Gemini, sin bajar el holdout (100 % con `v1`) ni el global (98 %), sin categorías bajo 70 % y sin más plazos vagos que `v1`. Más tokens de entrada por consulta.
+- **Resultado:** pendiente de medir.
+
 ## triage_v1 — 2026-11-25
 
 - **Cambio:** primera versión. Zero-shot con los 4 principios de la M1L2 (rol, contexto, tarea, formato) y el contrato `{answer, confidence, category, actions}` por tool calling (M1L3).

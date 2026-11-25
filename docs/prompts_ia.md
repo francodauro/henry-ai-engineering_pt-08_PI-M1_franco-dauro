@@ -226,3 +226,65 @@ Prompt v2 y su comparación (paso 4), guardrails (paso 5), LLM-as-judge.
 - Los plazos vagos pasaron de "medirlos" a "una sola respuesta ya es regresión", por decisión del alumno.
 - Para que el costo sea auditable, cada línea de `data/metrics.jsonl` lleva el nombre de la corrida, y el
   reporte compara la suma de `cost_usd` de esas líneas con el `costo_usd` de la corrida (nombre de la M1L5).
+
+---
+
+## Paso 4 — Prompt `triage_v2` comparado contra `v1` (25/11/2026)
+
+```text
+## Contexto
+Sigo con el repositorio `henry-ai-engineering_pt-08_PI-M1_franco-dauro` (Proyecto Integrador M1
+de Henry: triage de consultas de soporte de Nubbix). El paso 3 dejó la suite de evals:
+`triage_v1` (zero-shot) sacó 98 % con Gemini y con `gpt-6-luna`, con un único error repetido en los
+dos (NX-008, un cambio de plan con cobro de la diferencia, clasificado `other` en vez de `billing`).
+Gemini además escribió un plazo vago. Windows 11 / PowerShell.
+
+## Tarea de este paso
+Crear `triage_v2` con otra técnica de prompting, compararla contra `v1` con el runner y elegir la
+versión vigente con datos, como pide el PI (≥2 versiones comparadas contra el dataset; la técnica se
+justifica con resultados, no con opiniones).
+
+## Requisitos
+- Técnica: few-shot (M1L2). La lección recomienda tomar el caso mal clasificado, corregirlo y
+  mostrarlo como ejemplo. No uso chain-of-thought porque el razonamiento necesita un campo donde
+  escribirse y el contrato `{answer, confidence, category, actions}` no se cambia.
+- Un solo cambio respecto de `v1`: `v2` = `v1` + un par de ejemplos de contraste, para poder
+  atribuirle la diferencia. Los plazos vagos no se tocan acá (se resuelven en el paso 5 con el guardrail).
+- Los ejemplos son inventados, nunca casos del dataset (si estuvieran, el examen traería la respuesta):
+  uno que pide cambiar el plan contratado y su cobro (`billing`) y otro parecido que solo pregunta
+  un precio (`other`).
+- El reporte muestra además el score por lote (`dev` / `holdout`), los casos que cambian entre corridas
+  de la misma versión (inestables) y el costo proyectado con los precios de `gpt-6-luna`, porque con
+  Gemini el costo real es 0 y así se ve cuánto cuestan los tokens extra de los ejemplos.
+- Corridas: dos con Gemini por versión (una más de `v1` y dos de `v2`) y una de `v2` con `gpt-6-luna`
+  (≈ USD 0.007), para ver si `v2` corrige NX-008 en los dos modelos.
+- Criterio para elegir, fijado antes de correr, sobre las corridas de Gemini: `v2` queda vigente si
+  (1) su score en `holdout` no es menor que el de `v1`, (2) su score global no es menor que el de `v1`,
+  (3) ninguna categoría queda bajo 70 % en ninguna de sus corridas, (4) no tiene más plazos vagos que
+  `v1` y (5) acierta NX-008 en sus dos corridas. Si falla cualquiera, sigue `v1`, que es más simple y
+  más barata.
+- Documentación: `prompts/triage_v2.yaml`; entrada en el CHANGELOG (qué cambia, por qué y qué resultado
+  se espera); sección del README "Técnica elegida y por qué" con la tabla `v1` contra `v2`; decisiones
+  en DECISIONES.md. La conclusión la escribo yo (con ayuda si la necesito).
+- Tests con `unittest`, sin llamadas reales a las APIs.
+
+## Fuera de alcance
+Guardrails y `v3` con seguridad (paso 5) y la comparativa de modelos como extra credit (paso 6).
+
+## Terminado cuando
+- Pasan todos los tests.
+- Hay dos corridas completas con Gemini de cada versión y una de `v2` con `gpt-6-luna`.
+- El reporte compara las dos versiones por categoría y por lote, con casos inestables y costo
+  por acierto (real y proyectado).
+- La versión vigente queda elegida con el criterio de arriba y su fundamento escrito.
+```
+
+**Cómo influyó en las decisiones** (detalle en [DECISIONES.md](DECISIONES.md), D-27 a D-30)
+- El primer borrador del alumno dejaba abiertos el criterio ("que el costo extra se justifique"), la cantidad
+  de corridas y el proveedor. Se resolvieron antes de correr: cinco condiciones que se chequean sin opinar,
+  dos corridas por versión con Gemini y una de `v2` con `gpt-6-luna`.
+- Como con Gemini el costo real es 0, "el costo de los ejemplos" no se podía medir: se agregó al reporte el
+  costo proyectado con los precios de `gpt-6-luna`, que informa pero no decide.
+- Con dos corridas por versión, el reporte marca los casos inestables, para no confundir azar con mejora.
+- Los ejemplos se tomaron de `nubbix-triage` v9 (no son casos del dataset y ya se habían probado), pero sin la
+  regla escrita que los acompañaba allá, para que `v2` tenga un solo cambio: los ejemplos.

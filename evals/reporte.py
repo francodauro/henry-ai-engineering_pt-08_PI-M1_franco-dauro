@@ -14,11 +14,15 @@ from datetime import datetime
 
 from src.contract import CATEGORIES
 
-from .metricas import MAX_PLAZOS_VAGOS, UMBRAL_CATEGORIA
+from .metricas import LOTES, MAX_PLAZOS_VAGOS, MODELO_REF, UMBRAL_CATEGORIA, comparar_versiones
 
 
 def _usd(valor: float | None) -> str:
     return "—" if valor is None else f"USD {valor:.6f}"
+
+
+def _pct(valor: float | None) -> str:
+    return "—" if valor is None else f"{valor:.0%}"
 
 
 def _estado(r: dict) -> str:
@@ -84,8 +88,8 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
         "",
         "## 2. ¿Alguna categoría quedó bajo el umbral?",
         "",
-        "| Corrida | Global | " + " | ".join(cats) + " | Plazos vagos | Estado |",
-        "|---|---:|" + "---:|" * len(cats) + "---:|---|",
+        "| Corrida | Global | " + " | ".join(cats) + " | " + " | ".join(LOTES) + " | Plazos vagos | Estado |",
+        "|---|---:|" + "---:|" * (len(cats) + len(LOTES)) + "---:|---|",
     ]
     for r in resumenes:
         celdas = []
@@ -93,15 +97,17 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
             d = r["por_categoria"][c]
             marca = " ⚠" if d["bajo_umbral"] else ""
             celdas.append(f"{d['score']:.0%} ({d['aciertos']}/{d['n']}){marca}")
-        lineas.append(f"| `{r['corrida']}` | {r['score']:.0%} ({r['aciertos']}/{r['n']}) | " + " | ".join(celdas)
+        lotes = [f"{_pct(r['por_lote'][l]['score'])} ({r['por_lote'][l]['aciertos']}/{r['por_lote'][l]['n']})" for l in LOTES]
+        lineas.append(f"| `{r['corrida']}` | {r['score']:.0%} ({r['aciertos']}/{r['n']}) | " + " | ".join(celdas + lotes)
                       + f" | {len(r['plazos_vagos'])} | {_estado(r)} |")
 
     lineas += [
         "",
         "## 3. ¿El score y el costo por acierto cuentan la misma historia?",
         "",
-        "| Corrida | Aciertos | Tokens entrada / salida | Costo total | Costo en `metrics.jsonl` | Costo por acierto | Latencia promedio por caso (con reintentos) |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        f"| Corrida | Aciertos | Tokens entrada / salida | Costo total | Costo en `metrics.jsonl` | Costo por acierto "
+        f"| Costo por acierto proyectado con {MODELO_REF} | Latencia promedio por caso (con reintentos) |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in resumenes:
         en_metrics = costos_metrics.get(r["corrida"])
@@ -111,8 +117,29 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
             control = _usd(en_metrics) + (" ✓" if abs(en_metrics - r["costo_total"]) < 1e-9 else " ✗ no coincide")
         lineas.append(f"| `{r['corrida']}` | {r['aciertos']}/{r['n']} | {r['input_tokens']} / {r['output_tokens']} | "
                       f"{_usd(r['costo_total'])} | {control} | {_usd(r['costo_por_acierto'])} | "
-                      f"{r['latencia_promedio']:.2f} s |")
+                      f"{_usd(r.get('costo_por_acierto_proyectado'))} | {r['latencia_promedio']:.2f} s |")
     lineas += ["", _pregunta_3([r for r in resumenes if r["completa"]])]
+
+    filas = comparar_versiones(resumenes)
+    lineas += [
+        "",
+        "## 4. Comparación por versión y proveedor",
+        "",
+        "Promedio de las corridas completas de cada versión con cada proveedor. Un caso es **inestable** si su "
+        "categoría cambia entre corridas de la misma versión: ahí una diferencia puede ser azar.",
+        "",
+        "| Prompt | Proveedor | Corridas | Global | " + " | ".join(LOTES) + " | Peor categoría | Plazos vagos (total) "
+        f"| Casos con error | Inestables | Costo por acierto | Proyectado con {MODELO_REF} |",
+        "|---|---|---:|---:|" + "---:|" * len(LOTES) + "---:|---:|---|---|---:|---:|",
+    ]
+    for f in filas:
+        lineas.append(
+            f"| {f['version_prompt']} | {f['proveedor']} | {f['corridas']} | {_pct(f['score'])} | "
+            + " | ".join(_pct(f["por_lote"][l]) for l in LOTES)
+            + f" | {_pct(f['min_categoria'])} | {f['plazos_vagos']} | {', '.join(f['errores']) or 'ninguno'} | "
+            f"{', '.join(f['inestables']) or 'ninguno'} | {_usd(f['costo_por_acierto'])} | {_usd(f['costo_por_acierto_proyectado'])} |")
+    if not filas:
+        lineas.append("| — | — | 0 | — |" + " — |" * len(LOTES) + " — | — | — | — | — | — |")
 
     lineas += ["", "## Detalle de errores", ""]
     for r in resumenes:
