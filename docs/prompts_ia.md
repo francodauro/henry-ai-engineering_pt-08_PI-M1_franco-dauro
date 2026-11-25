@@ -288,3 +288,19 @@ Guardrails y `v3` con seguridad (paso 5) y la comparativa de modelos como extra 
 - Con dos corridas por versión, el reporte marca los casos inestables, para no confundir azar con mejora.
 - Los ejemplos se tomaron de `nubbix-triage` v9 (no son casos del dataset y ya se habían probado), pero sin la
   regla escrita que los acompañaba allá, para que `v2` tenga un solo cambio: los ejemplos.
+
+### Paso 4, segundo intento — `triage_v3` (25/11/2026)
+
+Después de ver que `v2` no cumplía el criterio, el alumno preguntó:
+
+```text
+Podríamos generar un mejor few shot?
+```
+
+**Cómo influyó en las decisiones** (D-31 y D-32)
+- La IA explicó qué falló en `v2`: el ejemplo de `billing` compartía tema y palabras con NX-036, y `gpt-6-luna` se guió
+  por ese parecido. Propuso un par sobre un tema que no aparece en el dataset (almacenamiento extra), con los dos
+  ejemplos iguales salvo la intención, y advirtió el riesgo de probar varias versiones sobre el mismo dataset.
+- El alumno eligió cambiar **solo los ejemplos** (no sumar la regla escrita que tenía `nubbix-triage` v9), para poder
+  atribuir una mejora a la elección de los ejemplos, y prefirió no fijar todavía si `v3` es el último intento.
+- `v3` se compara contra `v1` con el mismo criterio de `v2` (D-30), commiteado antes de correr.

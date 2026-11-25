@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado; la suite de evals mide la calidad sobre 40 casos y compara `triage_v1` (zero-shot) contra `triage_v2` (few-shot). El proyecto se construye paso a paso.
+> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado; la suite de evals mide la calidad sobre 40 casos y compara `triage_v1` (zero-shot) contra dos intentos few-shot, `triage_v2` y `triage_v3`. El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -166,12 +166,24 @@ Qué muestran los datos:
 |---|---|---|
 | [`triage_v1`](prompts/triage_v1.yaml) | Zero-shot con los 4 principios de la M1L2 (rol, contexto, tarea, formato) + contrato por tool calling | Línea base |
 | [`triage_v2`](prompts/triage_v2.yaml) | Few-shot: `v1` + un par de ejemplos de contraste | Dos ejemplos del mismo tema con distinta intención: pedir un cambio en lo que ya se contrata es `billing`; preguntar solo un precio es `other` |
+| [`triage_v3`](prompts/triage_v3.yaml) | Few-shot: `v1` + un par de contraste nuevo | Los mismos dos roles que `v2`, pero sobre un tema que no está en el dataset (almacenamiento extra) y con los ejemplos iguales salvo la intención |
 
 Por qué few-shot: el único error de `v1` (NX-008) se repitió con los dos modelos, así que es del prompt. La M1L2 recomienda, para un caso mal clasificado, mostrar un ejemplo corregido de esa misma ambigüedad. Chain-of-thought quedó afuera porque el razonamiento necesita un campo donde escribirse y el contrato no se cambia. Los ejemplos no son casos del dataset: si lo fueran, el examen traería la respuesta.
 
 Criterio fijado antes de correr (sobre dos corridas con Gemini por versión): `v2` queda vigente si su holdout y su global no son menores que los de `v1`, ninguna categoría queda bajo 70 %, no tiene más plazos vagos que `v1` y acierta NX-008 en sus dos corridas. Si no, sigue `v1`, que es más simple y barata.
 
-Resultados: pendientes de las corridas del paso 4.
+Resultados con Gemini (dos corridas por versión; reporte completo en [evals/reporte.md](evals/reporte.md)):
+
+| Criterio | `v1` | `v2` | ¿`v2` cumple? |
+|---|---:|---:|---|
+| Holdout ≥ `v1` | 100 % | 97,5 % (NX-040 mal en una corrida) | ❌ |
+| Global ≥ `v1` | 97,5 % | 98,75 % | ✅ |
+| Ninguna categoría < 70 % | 90 % la peor | 90 % la peor | ✅ |
+| Plazos vagos ≤ `v1` | 3 | 8 | ❌ |
+| NX-008 bien en las dos corridas | 0 de 2 | 2 de 2 | ✅ |
+| Costo por acierto proyectado con `gpt-6-luna` | USD 0.000144 | USD 0.000151 (+5 %, unos 95 tokens más por consulta) | (informa) |
+
+`v2` arregló NX-008, pero **no cumple el criterio** y no queda vigente. Con `gpt-6-luna` (98 %, USD 0.006062) arregló NX-008 y rompió NX-036 ("¿cuánto cuesta agregar el módulo de sucursales?"): el ejemplo de `billing` ("sumar el módulo… ¿cuánto aumenta la cuota?") se parecía demasiado a esa pregunta de precio. De ahí sale `v3`: la misma técnica con ejemplos mejor elegidos, contra el mismo criterio. Resultados de `v3`: pendientes.
 
 ## Estructura
 

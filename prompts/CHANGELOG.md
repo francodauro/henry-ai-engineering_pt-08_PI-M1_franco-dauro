@@ -2,12 +2,19 @@
 
 Cada versión es un archivo nuevo en `prompts/` y nunca se edita. Para cada una: qué cambió, por qué y con qué resultado.
 
+## triage_v3 — 2026-11-25
+
+- **Cambio:** `v1` + un par de contraste nuevo (few-shot). Respecto de `v2` cambian solo los ejemplos.
+- **Por qué:** en `v2` el ejemplo de `billing` compartía tema y palabras con NX-036 ("¿cuánto cuesta agregar el módulo…?") y `gpt-6-luna` se guió por el parecido de superficie. Los ejemplos nuevos hablan de un tema que no aparece en el dataset (almacenamiento extra) y solo difieren en la intención: "súmennos el paquete… ¿cuánto va a aumentar la cuota?" (pide el cambio → `billing`) contra "¿cuánto cuesta el paquete…?" (solo pregunta → `other`).
+- **Resultado esperado:** el mismo criterio que `v2` contra `v1` (D-30): NX-008 bien en las dos corridas de Gemini, holdout y global no menores que los de `v1`, ninguna categoría bajo 70 % y no más plazos vagos que `v1`. Además, NX-036 bien con `gpt-6-luna`.
+- **Resultado:** pendiente de medir.
+
 ## triage_v2 — 2026-11-25
 
 - **Cambio:** `v1` + un par de ejemplos de contraste entre `billing` y `other` (few-shot, M1L2). Es el único cambio.
 - **Por qué:** el único error de `v1` en el paso 3 fue NX-008 ("pasar del plan Básico al Pro… ¿cuánto me cobran la diferencia?"), y se repitió con Gemini y con `gpt-6-luna`: el prompt no marca el límite entre pedir un cambio en lo que ya se paga (`billing`) y preguntar un precio (`other`). Los ejemplos muestran ese límite con un tema distinto (un módulo), para no copiar casos del dataset.
 - **Resultado esperado:** NX-008 correcto en las dos corridas de Gemini, sin bajar el holdout (100 % con `v1`) ni el global (98 %), sin categorías bajo 70 % y sin más plazos vagos que `v1`. Más tokens de entrada por consulta.
-- **Resultado:** pendiente de medir.
+- **Resultado (2 corridas con Gemini + 1 con `gpt-6-luna`, 25/11/2026):** NX-008 bien en las 3 corridas y global de Gemini 98,75 % (`v1`: 97,5 %), pero **no cumple el criterio** (D-30): holdout 97,5 % contra 100 % (NX-040 salió `technical` en una corrida: inestable) y 8 plazos vagos contra 3. Con `gpt-6-luna` arregló NX-008 pero **rompió NX-036** (`other` → `billing`): el ejemplo de `billing` ("sumar el módulo… ¿cuánto aumenta la cuota?") se parecía demasiado a esa pregunta de precio. No queda vigente; sigue `v1`.
 
 ## triage_v1 — 2026-11-25
 

@@ -176,20 +176,30 @@ class TestPaso4(unittest.TestCase):
         self.assertIn("| triage_v2 | gemini | 1 | 100% | 100% | 100% |", texto)
         self.assertIn("Costo por acierto proyectado con gpt-6-luna", texto)
 
-    def test_v2_es_v1_mas_el_par_de_contraste(self):
-        v1, v2 = load_prompt("v1", PROMPTS), load_prompt("v2", PROMPTS)
-        self.assertEqual(v2.version, "triage_v2")
-        self.assertEqual(v2.user, v1.user)
-        self.assertIn('"billing"', render_system(v2))
-        self.assertIn("¿Qué precio tiene el módulo de facturación?", v2.system)
-        # Un solo cambio: quitando el bloque de ejemplos, v2 es igual a v1.
-        bloque = v2.system[v2.system.index("Ejemplos del límite"):v2.system.index("Respuesta para el cliente:")]
-        self.assertEqual(v2.system.replace(bloque, ""), v1.system)
+    def test_v2_y_v3_son_v1_mas_un_par_de_contraste(self):
+        v1 = load_prompt("v1", PROMPTS)
+        for version in ("v2", "v3"):
+            with self.subTest(version=version):
+                tv = load_prompt(version, PROMPTS)
+                self.assertEqual(tv.version, f"triage_{version}")
+                self.assertEqual(tv.user, v1.user)
+                self.assertIn('"billing"', render_system(tv))
+                # Un solo cambio: quitando el bloque de ejemplos, queda igual a v1.
+                bloque = tv.system[tv.system.index("Ejemplos del límite"):tv.system.index("Respuesta para el cliente:")]
+                self.assertEqual(tv.system.replace(bloque, ""), v1.system)
 
     def test_ejemplos_no_son_casos_del_dataset(self):
-        system = load_prompt("v2", PROMPTS).system
-        for c in runner.cargar_dataset():
-            self.assertNotIn(c["texto"], system)
+        for version in ("v2", "v3"):
+            system = load_prompt(version, PROMPTS).system
+            for c in runner.cargar_dataset():
+                self.assertNotIn(c["texto"], system)
+
+    def test_v3_usa_un_tema_que_no_esta_en_el_dataset(self):
+        # En v2 el ejemplo de billing hablaba de un "módulo", como NX-036, y gpt-6-luna lo confundió.
+        bloque = load_prompt("v3", PROMPTS).system.split("Ejemplos del límite")[1].split("Respuesta para el cliente:")[0]
+        self.assertNotIn("módulo", bloque)
+        self.assertIn("almacenamiento", bloque)
+        self.assertFalse(any("almacenamiento" in c["texto"].lower() for c in runner.cargar_dataset()))
 
 
 class TestRunner(unittest.TestCase):
