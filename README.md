@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 2 — contrato JSON.** La CLI devuelve el contrato validado, con el prompt `triage_v1`. El proyecto se construye paso a paso.
+> **Estado: paso 3 — dataset y evals.** La CLI devuelve el contrato validado con el prompt `triage_v1`, y la suite de evals mide su calidad sobre 40 casos. El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -109,7 +109,54 @@ Una línea JSON por llamada a cada proveedor, solo se agrega (append-only). No g
 
 El costo se puede rehacer a mano con `config/pricing.json`: 13 × 0.10 / 1.000.000 + 42 × 0.50 / 1.000.000 = USD 0.0000223.
 
-`status` es `ok`, `error` (con `error_kind`: `rate_limit`, `server_error`, `timeout`, `auth_error`…) o `skipped` (tope de gasto). Desde el paso 2, cada línea del triage suma `prompt_version`, `request_id` (agrupa los intentos de una consulta), `contract_attempt`, `contract_valid` y `contract_errors` (solo campo y tipo de error, por ejemplo `category:literal_error`, nunca el texto). `cost_usd` se guarda como número (un valor chico puede verse como `1.8e-05`, que es JSON válido); en pantalla se muestra con 6 decimales.
+`status` es `ok`, `error` (con `error_kind`: `rate_limit`, `server_error`, `timeout`, `auth_error`…) o `skipped` (tope de gasto). Desde el paso 2, cada línea del triage suma `prompt_version`, `request_id` (agrupa los intentos de una consulta), `contract_attempt`, `contract_valid` y `contract_errors` (solo campo y tipo de error, por ejemplo `category:literal_error`, nunca el texto). Desde el paso 3, las llamadas hechas por la suite de evals llevan además `corrida`, el nombre de la corrida a la que pertenecen. `cost_usd` se guarda como número (un valor chico puede verse como `1.8e-05`, que es JSON válido); en pantalla se muestra con 6 decimales.
+
+## Evals
+
+El dataset [evals/dataset.jsonl](evals/dataset.jsonl) tiene **40 casos etiquetados**: 10 por categoría, 28 no fáciles (ambiguos o difíciles) y 20 `dev` / 20 `holdout`. Cada caso trae la categoría esperada y una `nota` con el porqué. Se commiteó antes de la primera corrida, para que la referencia no se ajuste después de ver los resultados.
+
+```powershell
+# Correr los 40 casos con Gemini (gratis; tarda unos 5 minutos por la pausa entre casos)
+python -m evals.runner --proveedor gemini --prompt v1
+
+# Los mismos casos con OpenAI gpt-6-luna (pago: alrededor de USD 0.01)
+python -m evals.runner --proveedor openai --prompt v1
+
+# Solo el reporte, juntando corridas guardadas (no llama a ninguna API)
+python -m evals.runner --desde "evals/results/*.jsonl"
+```
+
+Cómo mide:
+- **Un proveedor por corrida, sin respaldo**: el score es de un solo modelo.
+- **Exact match** de la categoría, global y por categoría, con un **umbral de 70 % por categoría** fijado antes de correr. Una categoría por debajo es una regresión.
+- **Plazos vagos**: si una sola respuesta para el cliente dice "a la brevedad", "en breve", "lo antes posible" u otra expresión de [src/vague_timing.py](src/vague_timing.py), también es una regresión, aunque la categoría sea correcta.
+- **Costo por acierto** = costo total ÷ aciertos. El reporte comprueba que el costo de la corrida coincide con la suma de `cost_usd` de sus líneas en `data/metrics.jsonl`.
+- Si el proveedor no responde un caso (por ejemplo, "high demand"), se lo reintenta una vez al final. Si sigue sin respuesta, la corrida queda **incompleta** y no se usa para comparar.
+
+Cada corrida se guarda en su propio archivo en `evals/results/` (nunca se pisa) y el reporte va a [evals/reporte.md](evals/reporte.md). Códigos de salida: `0` completa sin regresiones · `1` completa con regresiones · `2` incompleta · `5` error de configuración o de datos.
+
+> **Salvedad:** las corridas guardan el texto de cada consulta y la respuesta del modelo, para poder revisar los errores. Se hace porque es un trabajo educativo con un dataset ficticio. En un servicio en producción, con consultas reales de clientes, no se guardaría el texto. `data/metrics.jsonl` no lo guarda nunca.
+
+### Resultados
+
+Prompt `triage_v1`, 40 casos, 25/11/2026. Reporte completo en [evals/reporte.md](evals/reporte.md) y corridas en [evals/results/](evals/results/).
+
+| Modelo | Global | billing | technical | account | other | Plazos vagos | Costo total | Costo por acierto | Latencia por caso | Estado |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Gemini `gemini-3.5-flash-lite` | 98 % (39/40) | 90 % | 100 % | 100 % | 100 % | **1** | USD 0 | USD 0 | 4,82 s | **Regresión** (plazo vago) |
+| OpenAI `gpt-6-luna` | 98 % (39/40) | 90 % | 100 % | 100 % | 100 % | 0 | USD 0.005709 | USD 0.000146 | 1,48 s | OK |
+
+Qué muestran los datos:
+- **El mismo único error en los dos modelos: NX-008** ("quiero pasar del plan Básico al Pro, ¿cuánto me van a cobrar la diferencia?"). La referencia es `billing` (un cambio del plan ya contratado y su cobro), y los dos respondieron `other` con `contact_sales`. Es un caso difícil a propósito: su par de contraste, NX-036 (solo pregunta un precio, `other`), salió bien en los dos.
+- **Gemini escribió "a la brevedad" en NX-011** aunque `triage_v1` lo prohíbe: el prompt reduce el problema, no lo garantiza. Con la regla de umbral 0 eso es una regresión. `gpt-6-luna` no escribió ningún plazo vago.
+- **El contrato se cumplió al primer intento en los 80 casos**: no hizo falta ningún reintento de contrato.
+- **Gemini no respondió 4 casos** ("high demand", error 5xx) después de los reintentos de red; los 4 respondieron en el reintento del final y la corrida quedó completa. Además, 14 casos necesitaron reintentos de red. Por eso la latencia por caso es de 4,82 s, aunque la API sola tardó 1,65 s en promedio.
+- **El costo es auditable**: 40.159 tokens de entrada × USD 0.10 / 1M + 3.387 de salida × USD 0.50 / 1M = USD 0.005709, igual a la suma de `cost_usd` de esa corrida en `data/metrics.jsonl`. Proyectado a 12.000 consultas por mes (400 por día, según la consigna), `gpt-6-luna` costaría unos USD 1.71 por mes.
+- **Score y costo por acierto**: empatan en score; Gemini gana en costo (USD 0) pero es el que tiene la regresión.
+
+**Conclusión:** Con `triage_v1`, Gemini y `gpt-6-luna` clasifican igual: 98 % global, todas las categorías por encima del 70 % y el mismo único error (NX-008, un cambio de plan con cobro de la diferencia, que los dos mandan a `other`). Como el error se repite con los dos modelos, es un problema del prompt, no del modelo. La diferencia está en la respuesta al cliente: Gemini escribió "a la brevedad" una vez, y con mi regla (cero plazos vagos) eso es una regresión. `gpt-6-luna` pasó todas las reglas, pero cuesta USD 0.000146 por acierto (unos USD 1,71 por mes a 12.000 consultas), contra USD 0 de Gemini.
+
+**Decisión:** Gemini sigue como proveedor primario y `gpt-6-luna` como respaldo. Un plazo vago en 40 respuestas, con una sola corrida por modelo, no alcanza para pagar por un modelo que clasifica igual. Además, el problema está en el prompt y se ataca en el prompt y en el código. `triage_v1` queda como línea base **con una regresión pendiente**. En el paso 4, `triage_v2` tiene que resolver NX-008 sin perder el resto. En el paso 5, el guardrail de salida tiene que garantizar en código que ninguna respuesta lleve un plazo vago, porque el prompt solo no lo garantiza.
 
 ## Estructura
 
@@ -117,7 +164,7 @@ El costo se puede rehacer a mano con `config/pricing.json`: 13 × 0.10 / 1.000.0
 src/       código del servicio (src/llm/: proveedores y router)
 config/    precios por modelo (pricing.json)
 prompts/   prompts del triage versionados en YAML + CHANGELOG.md
-evals/     dataset de evaluación y runner
+evals/     dataset de evaluación, runner, métricas, reporte y corridas (results/)
 data/      métricas de cada ejecución (data/metrics.jsonl)
 tests/     tests con unittest, sin llamadas a APIs
 docs/      documentación: decisiones (DECISIONES.md) y prompts usados con IA

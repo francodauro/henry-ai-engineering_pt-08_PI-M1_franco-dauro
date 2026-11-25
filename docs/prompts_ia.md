@@ -157,3 +157,72 @@ Dataset y evals (paso 3), más versiones del prompt (paso 4), guardrails (paso 5
   categoría de las evals (M1L5, paso 3).
 - Pedir la validación contra la M1L3 y `nubbix-triage` llevó a comparar las acciones con el ejemplo de Henry
   antes de adoptarlas (D-12), y a que el alumno decidiera incluir en `v1` la regla contra los plazos vagos (D-15).
+
+---
+
+## Paso 3 — Dataset y suite de evals (25/11/2026)
+
+```text
+## Contexto
+Sigo con el repositorio `henry-ai-engineering_pt-08_PI-M1_franco-dauro` (Proyecto Integrador M1
+de Henry: triage de consultas de soporte de Nubbix). El paso 2 dejó la CLI que devuelve el contrato
+validado con el prompt `triage_v1`, usando Gemini como primario y OpenAI como respaldo. Windows 11 / PowerShell.
+
+## Tarea de este paso
+Crear el dataset de evaluación y una suite de evals que corra por comando y mida la calidad del
+triage con datos: score global y por categoría, umbral, costo por acierto y reporte.
+
+## Requisitos
+- Dataset `evals/dataset.jsonl`: reusar los 40 casos de `nubbix-triage` (10 por categoría, 28 no
+  fáciles), con solo los campos necesarios: `id`, `texto`, `categoria_esperada`, `dificultad`, `nota`
+  (por qué esa es la categoría correcta) y `lote` (`dev` / `holdout`, para el paso 4).
+- La referencia se fija antes de correr: el dataset se commitea antes de la primera corrida.
+- Runner `python -m evals.runner`: un script simple, sin pytest ni framework. Corre todos los casos
+  con un solo proveedor elegido (`--proveedor gemini|openai`) y un prompt (`--prompt v1`),
+  sin fallback, para que una corrida nunca mezcle modelos.
+- Si un caso falla por un error transitorio (por ejemplo "high demand") después de los reintentos
+  de red, al terminar se vuelven a intentar solo los casos fallidos, una vez y después de una pausa.
+  Si alguno sigue fallando, la corrida queda marcada como "incompleta" y no se usa para comparar.
+- Métricas: exact match de la categoría, global y por categoría; umbral de 0,70 por categoría fijado
+  de antemano (una categoría por debajo es una regresión); costo total y costo por acierto.
+- Plazos vagos: contar las respuestas (`answer`) con expresiones de tiempo vagas ("a la brevedad",
+  "en breve", "lo antes posible"…), global y por categoría. Es un error de respuesta aunque la
+  categoría sea correcta: una sola respuesta con un plazo vago ya es una regresión (umbral 0).
+  La lista de expresiones vive en un solo lugar, para reusarla en el guardrail de salida del paso 5.
+- Una corrida = un archivo en `evals/results/` que nunca se pisa (fecha y hora, proveedor y prompt
+  en el nombre). Cada línea guarda caso, categoría esperada y obtenida, `answer`, tokens, latencia y
+  costo, e incluye el texto de la consulta. Esto se hace porque es un trabajo educativo con un
+  dataset ficticio, no un servicio en producción. La salvedad queda documentada en DECISIONES.md y
+  en el README. `data/metrics.jsonl` sigue sin guardar texto.
+- Reporte en markdown, generado a partir de una o varias corridas guardadas, sin llamar a la API,
+  que responda: qué se evaluó (dataset, n, proveedor, modelo, prompt), si alguna categoría quedó
+  bajo el umbral (con números), y si el score y el costo por acierto cuentan la misma historia.
+  La conclusión la escribo yo a mano.
+- Validación contra la M1L5 de Henry y `nubbix-triage`: si algo difiere entre los dos, avisame
+  antes de decidir.
+- Tests con `unittest`, sin llamadas reales a las APIs.
+
+## Fuera de alcance
+Prompt v2 y su comparación (paso 4), guardrails (paso 5), LLM-as-judge.
+
+## Terminado cuando
+- Pasan todos los tests.
+- Hay una corrida completa con Gemini (costo 0) y una con OpenAI `gpt-6-luna` (≈ USD 0.01),
+  cada una en su archivo, con `triage_v1`.
+- El reporte de las dos corridas responde las tres preguntas, y el costo de la corrida de OpenAI
+  coincide con la suma de `cost_usd` de sus líneas.
+```
+
+**Cómo influyó en las decisiones** (detalle en [DECISIONES.md](DECISIONES.md), D-17 a D-25)
+- El borrador del alumno pedía guardar el texto de la consulta en cada corrida. Se aceptó con la salvedad
+  escrita (trabajo educativo, dataset ficticio), igual que el `RegistroEval` de la M1L5, que también guarda
+  `texto`. En `nubbix-triage` se había hecho lo contrario (sin texto); `data/metrics.jsonl` sigue sin texto.
+- "Las justas y necesarias para cumplir con el PI": de los 8 campos de la referencia quedaron 6. Se sacaron
+  `regla` y `criterio` (solo servían para el juez); se conservó `lote` para decidir el paso 4 con holdout.
+  Los nombres `categoria_esperada` y `nota` son los de la M1L5.
+- "Una corrida completa y entera de cada modelo": el runner nunca usa el respaldo, reintenta al final los
+  casos que el proveedor no respondió y, si alguno sigue sin respuesta, marca la corrida como incompleta.
+  La corrida con `gpt-6-luna` se adelantó a este paso por pedido del alumno.
+- Los plazos vagos pasaron de "medirlos" a "una sola respuesta ya es regresión", por decisión del alumno.
+- Para que el costo sea auditable, cada línea de `data/metrics.jsonl` lleva el nombre de la corrida, y el
+  reporte compara la suma de `cost_usd` de esas líneas con el `costo_usd` de la corrida (nombre de la M1L5).
