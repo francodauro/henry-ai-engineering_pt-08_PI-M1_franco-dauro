@@ -14,7 +14,7 @@ from datetime import datetime
 
 from src.contract import CATEGORIES
 
-from .metricas import LOTES, MAX_PLAZOS_VAGOS, MODELO_REF, UMBRAL_CATEGORIA, comparar_versiones
+from .metricas import LOTES, MAX_FALSOS_POSITIVOS, MAX_PLAZOS_VAGOS, MODELO_REF, UMBRAL_CATEGORIA, comparar_versiones
 
 
 def _usd(valor: float | None) -> str:
@@ -71,7 +71,13 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
         "# Reporte de evaluación · Triage Nubbix",
         "",
         f"Generado el {ahora:%d/%m/%Y %H:%M} con `python -m evals.runner`. "
-        f"Umbral por categoría: {UMBRAL_CATEGORIA:.0%}. Plazos vagos permitidos: {MAX_PLAZOS_VAGOS}.",
+        f"Umbral por categoría: {UMBRAL_CATEGORIA:.0%}. Plazos vagos permitidos: {MAX_PLAZOS_VAGOS}. "
+        f"Consultas legítimas bloqueadas o en revisión permitidas: {MAX_FALSOS_POSITIVOS}.",
+        "",
+        "Desde el paso 5 las corridas pasan por los guardrails (columna *Guardrails*). En esas, los plazos vagos "
+        "**entregados** son los que llegaron al cliente; los **corregidos** son los que escribió el modelo y la "
+        "compuerta de salida sacó. Las corridas anteriores no tienen guardrails: lo que escribió el modelo es lo "
+        "que se entregaba.",
         "",
         "## 1. Qué se evaluó",
         "",
@@ -88,8 +94,9 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
         "",
         "## 2. ¿Alguna categoría quedó bajo el umbral?",
         "",
-        "| Corrida | Global | " + " | ".join(cats) + " | " + " | ".join(LOTES) + " | Plazos vagos | Estado |",
-        "|---|---:|" + "---:|" * (len(cats) + len(LOTES)) + "---:|---|",
+        "| Corrida | Guardrails | Global | " + " | ".join(cats) + " | " + " | ".join(LOTES)
+        + " | Plazos vagos entregados | Plazos corregidos | Bloqueadas o en revisión | Estado |",
+        "|---|---|---:|" + "---:|" * (len(cats) + len(LOTES)) + "---:|---:|---:|---|",
     ]
     for r in resumenes:
         celdas = []
@@ -98,8 +105,14 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
             marca = " ⚠" if d["bajo_umbral"] else ""
             celdas.append(f"{d['score']:.0%} ({d['aciertos']}/{d['n']}){marca}")
         lotes = [f"{_pct(r['por_lote'][l]['score'])} ({r['por_lote'][l]['aciertos']}/{r['por_lote'][l]['n']})" for l in LOTES]
-        lineas.append(f"| `{r['corrida']}` | {r['score']:.0%} ({r['aciertos']}/{r['n']}) | " + " | ".join(celdas + lotes)
-                      + f" | {len(r['plazos_vagos'])} | {_estado(r)} |")
+        if r.get("con_guardrails"):
+            corregidos = str(len(r["plazos_detectados"]) - len(r["plazos_vagos"]))
+            fp = str(len(r["falsos_positivos"]))
+        else:
+            corregidos = fp = "—"
+        lineas.append(f"| `{r['corrida']}` | {'sí' if r.get('con_guardrails') else 'no'} | "
+                      f"{r['score']:.0%} ({r['aciertos']}/{r['n']}) | " + " | ".join(celdas + lotes)
+                      + f" | {len(r['plazos_vagos'])} | {corregidos} | {fp} | {_estado(r)} |")
 
     lineas += [
         "",
@@ -128,18 +141,21 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
         "Promedio de las corridas completas de cada versión con cada proveedor. Un caso es **inestable** si su "
         "categoría cambia entre corridas de la misma versión: ahí una diferencia puede ser azar.",
         "",
-        "| Prompt | Proveedor | Corridas | Global | " + " | ".join(LOTES) + " | Peor categoría | Plazos vagos (total) "
+        "| Prompt | Proveedor | Guardrails | Corridas | Global | " + " | ".join(LOTES) + " | Peor categoría "
+        "| Plazos vagos entregados (total) | Plazos escritos por el modelo (total) | Bloqueadas o en revisión (total) "
         f"| Casos con error | Inestables | Costo por acierto | Proyectado con {MODELO_REF} |",
-        "|---|---|---:|---:|" + "---:|" * len(LOTES) + "---:|---:|---|---|---:|---:|",
+        "|---|---|---|---:|---:|" + "---:|" * len(LOTES) + "---:|---:|---:|---:|---|---|---:|---:|",
     ]
     for f in filas:
         lineas.append(
-            f"| {f['version_prompt']} | {f['proveedor']} | {f['corridas']} | {_pct(f['score'])} | "
+            f"| {f['version_prompt']} | {f['proveedor']} | {'sí' if f['con_guardrails'] else 'no'} | {f['corridas']} | "
+            f"{_pct(f['score'])} | "
             + " | ".join(_pct(f["por_lote"][l]) for l in LOTES)
-            + f" | {_pct(f['min_categoria'])} | {f['plazos_vagos']} | {', '.join(f['errores']) or 'ninguno'} | "
+            + f" | {_pct(f['min_categoria'])} | {f['plazos_vagos']} | {f['plazos_detectados']} | "
+            f"{f['falsos_positivos'] if f['con_guardrails'] else '—'} | {', '.join(f['errores']) or 'ninguno'} | "
             f"{', '.join(f['inestables']) or 'ninguno'} | {_usd(f['costo_por_acierto'])} | {_usd(f['costo_por_acierto_proyectado'])} |")
     if not filas:
-        lineas.append("| — | — | 0 | — |" + " — |" * len(LOTES) + " — | — | — | — | — | — |")
+        lineas.append("| — | — | — | 0 | — |" + " — |" * len(LOTES) + " — | — | — | — | — | — | — | — |")
 
     lineas += ["", "## Detalle de errores", ""]
     for r in resumenes:
@@ -156,6 +172,13 @@ def generar_reporte(resumenes: list[dict], dataset: dict, costos_metrics: dict[s
                 lineas.append(f"- Plazo vago: {p['caso_id']} ({p['categoria']}): " + ", ".join(f"\"{f}\"" for f in p["frases"]))
         else:
             lineas.append("- Plazos vagos: ninguno.")
+        if r.get("con_guardrails"):
+            corregidos = [p for p in r["plazos_detectados"] if p["caso_id"] not in {q["caso_id"] for q in r["plazos_vagos"]}]
+            if corregidos:
+                lineas.append("- Plazos vagos que sacó la compuerta de salida: " + ", ".join(
+                    f"{p['caso_id']} (" + ", ".join(f'"{f}"' for f in p["frases"]) + ")" for p in corregidos))
+            for fp in r["falsos_positivos"]:
+                lineas.append(f"- Consulta legítima {fp['decision']}: {fp['caso_id']} ({', '.join(fp['reglas'])})")
         if r["contrato_invalido"]:
             lineas.append(f"- Sin contrato válido después de todos los intentos: {', '.join(r['contrato_invalido'])}")
         if r["reintentados"]:

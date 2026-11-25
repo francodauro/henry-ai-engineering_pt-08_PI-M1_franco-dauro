@@ -8,13 +8,14 @@ Uso (PowerShell, desde la raíz del proyecto, con el entorno virtual activo):
 
 Qué hace:
 1. Corre cada caso del dataset con **un solo proveedor y sin respaldo**: una corrida nunca mezcla modelos.
+   Desde el paso 5, cada caso pasa por los guardrails de la CLI (``src/guardrails.py``).
 2. Si un caso falla porque el proveedor no respondió (por ejemplo "high demand") después de los reintentos
    de red, al terminar se lo vuelve a intentar una vez, después de una pausa. Si sigue fallando, la
    corrida queda **incompleta** y el reporte no la usa para comparar.
 3. Guarda la corrida en su propio archivo ``evals/results/AAAAMMDD-HHMMSS_<prompt>_<proveedor>.jsonl``,
    creado en modo ``"x"``: nunca pisa una corrida anterior.
 4. Escribe el reporte markdown (``evals/reporte.md`` por defecto) con exact match global y por categoría,
-   umbral de 0.70, plazos vagos y costo por acierto.
+   umbral de 0.70, plazos vagos, consultas legítimas bloqueadas o en revisión y costo por acierto.
 
 Es un script simple, sin pytest ni frameworks (lo pide el PI).
 
@@ -46,7 +47,7 @@ from src.llm.factory import build_providers
 from src.llm.router import Router
 from src.metrics import MetricsLog
 from src.prompts import PromptError, PromptTemplate, load_prompt
-from src.triage import ContractError, triage
+from src.triage import ContractError, guarded_triage
 
 from .metricas import CONTRATO_INVALIDO, ERROR_API, MODELO_REF, OK, exact_match, resumir
 from .reporte import generar_reporte
@@ -128,6 +129,10 @@ class RouterDeCorrida:
         self.corrida = corrida
         self.respuestas = []
 
+    @property
+    def metrics(self) -> MetricsLog:
+        return self.router.metrics
+
     def ask(self, prompt, system=None, *, tool=None, context=None, extra_fields=None):
         contexto = {**(context or {}), "corrida": self.corrida}
         respuesta = self.router.ask(prompt, system, tool=tool, context=contexto, extra_fields=extra_fields)
@@ -142,11 +147,13 @@ def evaluar_caso(caso: dict, router: Router, template: PromptTemplate, *, corrid
     :raises CorridaAbortada: si el proveedor falló por un error que no es transitorio.
     """
     envuelto = RouterDeCorrida(router, corrida)
-    resultado, estado, error = None, OK, None
+    guarded, estado, error = None, OK, None
     inicio = reloj()
     try:
-        outcome = triage(caso["texto"], envuelto, template, max_attempts=max_attempts)
-        resultado = outcome.result
+        # Desde el paso 5, cada caso pasa por los guardrails, como en la CLI: así las evals miden también los
+        # falsos positivos (consultas legítimas bloqueadas o en revisión) y los plazos vagos que llegan al cliente.
+        guarded = guarded_triage(caso["texto"], envuelto, template, router.metrics, max_attempts=max_attempts,
+                                 context={"corrida": corrida})
     except ContractError as exc:
         estado, error = CONTRATO_INVALIDO, str(exc)
     except AllProvidersFailedError as exc:
@@ -156,6 +163,7 @@ def evaluar_caso(caso: dict, router: Router, template: PromptTemplate, *, corrid
         estado, error = ERROR_API, ", ".join(getattr(e, "kind", "error") for e in exc.errors)
     latencia = reloj() - inicio
 
+    resultado = guarded.result if guarded else None
     obtenida = resultado.category if resultado else None
     return {
         "corrida": corrida,
@@ -172,7 +180,12 @@ def evaluar_caso(caso: dict, router: Router, template: PromptTemplate, *, corrid
         "acierto": exact_match(obtenida, caso["categoria_esperada"]),
         "estado": estado,
         "error": error,
-        "answer": resultado.answer if resultado else None,
+        "answer": resultado.answer if resultado else None,        # lo que se entrega al cliente
+        "answer_modelo": guarded.model_answer if guarded else None,  # lo que escribió el modelo (None si se bloqueó)
+        "guardrails": True,
+        "decision_guardrail": guarded.decision if guarded else None,
+        "reglas_entrada": guarded.input_rules if guarded else [],
+        "reglas_salida": guarded.output_rules if guarded else [],
         "confidence": resultado.confidence if resultado else None,
         "actions": list(resultado.actions) if resultado else None,
         "intentos_contrato": len(envuelto.respuestas),
@@ -316,13 +329,18 @@ def imprimir_resumen(resumenes: list[dict], reporte_path: Path) -> None:
         costo = "—" if r["costo_por_acierto"] is None else f"USD {r['costo_por_acierto']:.6f}"
         lotes = " · ".join(f"{l} {d['score']:.0%}" for l, d in r["por_lote"].items() if d["score"] is not None)
         print(f"\n{r['corrida']}: global {r['score']:.0%} ({r['aciertos']}/{r['n']}) · {cats} · {lotes}")
-        print(f"  plazos vagos: {len(r['plazos_vagos'])} · costo total USD {r['costo_total']:.6f} · costo por acierto {costo}")
+        guard = ""
+        if r.get("con_guardrails"):
+            corregidos = len(r["plazos_detectados"]) - len(r["plazos_vagos"])
+            guard = f" (corregidos por la compuerta: {corregidos}) · bloqueadas o en revisión: {len(r['falsos_positivos'])}"
+        print(f"  plazos vagos entregados: {len(r['plazos_vagos'])}{guard} · costo total USD {r['costo_total']:.6f} · "
+              f"costo por acierto {costo}")
         if not r["completa"]:
             print(f"  INCOMPLETA: sin respuesta en {', '.join(r['errores_api'])}. Volvé a correrla; no se usa para comparar.")
         elif r["regresiones"]:
             print("  REGRESIÓN: " + "; ".join(r["regresiones"]))
         else:
-            print("  OK: todas las categorías superan el umbral y no hay plazos vagos.")
+            print("  OK: todas las categorías superan el umbral, no hay plazos vagos y no se bloqueó ninguna consulta legítima.")
     print(f"\nReporte: {reporte_path}")
 
 

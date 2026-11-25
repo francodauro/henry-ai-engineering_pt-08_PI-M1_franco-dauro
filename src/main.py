@@ -9,8 +9,13 @@ Uso:
 La salida estándar trae **solo el JSON validado**, para que otro sistema lo consuma sin transformaciones.
 Los avisos y el detalle van a la salida de errores.
 
-Códigos de salida: 0 ok · 2 consulta vacía · 3 fallaron todos los proveedores · 4 ningún intento cumplió
-el contrato · 5 error de configuración.
+Desde el paso 5, cada consulta pasa por los guardrails (``src/guardrails.py``): la compuerta de entrada
+bloquea ataques conocidos sin llamar al modelo, y la de salida corrige plazos vagos y PII o manda a revisión
+una respuesta con promesas o con el eco del system prompt. En todos los casos sale un contrato válido.
+
+Códigos de salida: 0 ok (también si la salida se corrigió) · 2 consulta vacía · 3 fallaron todos los
+proveedores · 4 ningún intento cumplió el contrato · 5 error de configuración · 6 consulta bloqueada por la
+compuerta de entrada · 7 respuesta en revisión por la compuerta de salida.
 """
 
 from __future__ import annotations
@@ -26,13 +31,16 @@ from .llm.factory import build_providers
 from .llm.router import Router
 from .metrics import MetricsLog
 from .prompts import PromptError, load_prompt
-from .triage import ContractError, InvalidQueryError, TriageOutcome, triage
+from . import guardrails
+from .triage import ContractError, GuardedOutcome, InvalidQueryError, guarded_triage
 
 EXIT_OK = 0
 EXIT_EMPTY_QUERY = 2
 EXIT_ALL_FAILED = 3
 EXIT_CONTRACT = 4
 EXIT_CONFIG = 5
+EXIT_BLOCKED = 6
+EXIT_REVIEW = 7
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -44,8 +52,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def describe(outcome: TriageOutcome) -> str:
+def describe(guarded: GuardedOutcome) -> str:
     """Detalle de la llamada para una persona (el costo con 6 decimales, sin notación científica)."""
+    outcome = guarded.outcome
+    if outcome is None:
+        return f"prompt: {guarded.prompt_version} · no se llamó a ningún modelo · costo: USD {format_usd(0.0)}"
     r = outcome.response
     return (
         f"prompt: {outcome.prompt_version} · intentos de contrato: {outcome.attempts} · "
@@ -81,18 +92,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error de configuración: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
+    metrics = MetricsLog(settings.metrics_path)
     router = Router(
         providers,
         pricing,
-        MetricsLog(settings.metrics_path),
+        metrics,
         budget_usd=settings.budget_usd,
         max_retries=settings.max_retries,
         max_wait_s=settings.max_wait_seconds,
         on_failure=lambda name, exc: warn(f"{name} no respondió ({getattr(exc, 'kind', 'error')}): {exc}"),
     )
     try:
-        outcome = triage(
-            args.consulta, router, template,
+        guarded = guarded_triage(
+            args.consulta, router, template, metrics,
             max_attempts=settings.contract_max_attempts,
             on_retry=lambda attempt, error: warn(f"el intento {attempt} no cumplió el contrato ({error}); se reintenta."),
         )
@@ -106,10 +118,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return EXIT_CONTRACT
 
-    print(json.dumps(outcome.result.model_dump(), ensure_ascii=False, indent=2))
+    print(json.dumps(guarded.result.model_dump(), ensure_ascii=False, indent=2))
+    if guarded.decision == guardrails.BLOCKED:
+        warn(f"consulta bloqueada por la compuerta de entrada ({', '.join(guarded.input_rules)}): "
+             "no se llamó al modelo y la atiende una persona.")
+    elif guarded.decision == guardrails.REVIEW:
+        warn(f"la respuesta del modelo se reemplazó y queda en revisión ({', '.join(guarded.output_rules)}).")
+    elif guarded.decision == guardrails.CORRECTED:
+        warn(f"la compuerta de salida corrigió la respuesta ({', '.join(guarded.output_rules)}).")
     if args.detalle:
-        print(describe(outcome), file=sys.stderr)
-    return EXIT_OK
+        print(describe(guarded), file=sys.stderr)
+    return {guardrails.BLOCKED: EXIT_BLOCKED, guardrails.REVIEW: EXIT_REVIEW}.get(guarded.decision, EXIT_OK)
 
 
 if __name__ == "__main__":

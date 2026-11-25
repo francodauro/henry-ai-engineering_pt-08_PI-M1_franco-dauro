@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado con `triage_v1`, la versión vigente; la suite de evals mide la calidad sobre 40 casos y la comparó contra dos intentos few-shot (`triage_v2` y `triage_v3`). El proyecto se construye paso a paso.
+> **Estado: paso 5 — guardrails, antes de correr.** La CLI devuelve el contrato validado con `triage_v1`, la versión vigente, y cada consulta pasa por una compuerta de entrada y una de salida. `triage_v4` (con reglas de seguridad), su criterio de elección y la suite adversarial están commiteados antes de correrlos; los resultados se suman en el próximo commit. El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -40,6 +40,7 @@ consulta ──► ¿vacía? ──sí──► error 2 (no se llama al modelo)
 - **Tool calling forzado** en los dos proveedores: el modelo está obligado a llamar a la función `registrar_triage`, cuyo schema sale del contrato (`model_json_schema()`). Gemini entrega los argumentos como dict y OpenAI como texto JSON; cada proveedor los convierte a dict.
 - **Reintento informado:** si la respuesta no cumple el contrato, se vuelve a pedir (hasta 3 intentos) agregando al system qué campo falló y por qué. Son dos capas distintas: los reintentos de red (paso 1) y los de contrato.
 - **Prompt** versionado en YAML, fuera del código: [prompts/triage_v1.yaml](prompts/triage_v1.yaml) (historia en [prompts/CHANGELOG.md](prompts/CHANGELOG.md)).
+- **Guardrails** ([src/guardrails.py](src/guardrails.py)): antes del modelo, una compuerta de entrada bloquea ataques conocidos; después, una de salida corrige plazos vagos y PII, y manda a revisión las promesas y el eco del system prompt. Detalle en [Seguridad](#seguridad-guardrails).
 
 ## El contrato
 
@@ -96,7 +97,7 @@ python -m src.main --proveedor openai --detalle "no me llega la factura de agost
 python -m unittest discover -s tests
 ```
 
-La salida estándar trae **solo el JSON validado**, para que otro sistema lo consuma sin transformaciones; los avisos y el detalle van a la salida de errores. Códigos de salida: `0` ok · `2` consulta vacía · `3` fallaron todos los proveedores · `4` ningún intento cumplió el contrato · `5` error de configuración (en PowerShell: `echo $LASTEXITCODE`).
+La salida estándar trae **solo el JSON validado**, para que otro sistema lo consuma sin transformaciones; los avisos y el detalle van a la salida de errores. Códigos de salida: `0` ok (también si la compuerta de salida corrigió la respuesta) · `2` consulta vacía · `3` fallaron todos los proveedores · `4` ningún intento cumplió el contrato · `5` error de configuración · `6` consulta bloqueada por la compuerta de entrada · `7` respuesta en revisión por la compuerta de salida (en PowerShell: `echo $LASTEXITCODE`). Con `6` y `7` la salida estándar igual trae un contrato válido.
 
 ### Métricas (`data/metrics.jsonl`)
 
@@ -189,6 +190,36 @@ Con `gpt-6-luna` (una corrida por versión): `v1` 98 % (falla NX-008) · `v2` 98
 **Conclusión:** Probé dos versiones few-shot contra `v1`, cada una con el criterio de cinco condiciones commiteado antes de correr. `triage_v2` arregló NX-008, pero su ejemplo de `billing` ("sumar el módulo… ¿cuánto aumenta la cuota?") se parecía demasiado a una pregunta de precio: con `gpt-6-luna` rompió NX-036, y con Gemini bajó el holdout. En `triage_v3` cambié solo los ejemplos por un tema que no aparece en el dataset (almacenamiento extra), con los dos casos iguales salvo la intención. Eso corrigió el problema de `v2`: holdout 100 % y, con `gpt-6-luna`, 100 % sin plazos vagos. Pero con Gemini, el primario, NX-008 salió bien en una sola de las dos corridas, y los plazos vagos subieron de 3 a 6. Ninguna de las dos cumple el criterio, así que **`triage_v1` sigue vigente**.
 
 Lo que aprendí: en few-shot, el ejemplo importa tanto como la técnica (un ejemplo que se parece en la superficie al caso de enfrente mueve el límite para ese lado), y un mismo prompt puede funcionar en un modelo y quedar inestable en otro. No cambio el criterio después de ver los datos. El buen resultado de `gpt-6-luna` con `v3` lo retomo en la comparativa de modelos (paso 6), y los plazos vagos se resuelven en el paso 5 con el guardrail de salida, en código.
+
+## Seguridad (guardrails)
+
+Lo pide el PI (al menos un guardrail de entrada y uno de salida) y sale de la M1L4: la seguridad es la suma de capas, no la mejor de ellas. Son reglas en código, sin un segundo modelo (D-34):
+
+| Capa | Dónde | Qué hace |
+|---|---|---|
+| Compuerta de entrada | [src/guardrails.py](src/guardrails.py) | Regex de injection, jailbreak y exfiltración del system prompt, sin importar mayúsculas ni tildes. Si dispara: **no se llama al modelo**, sale el contrato con una respuesta fija, `other`, confianza 0 y `escalate_to_human`, y el código `6` (D-35, D-36) |
+| Canales separados | `<consulta>` en el prompt | La consulta va delimitada y se escapan las etiquetas, para que el cliente no pueda "cerrar" su bloque y escribir como si fuera el sistema |
+| Reglas de seguridad | [prompts/triage_v4.yaml](prompts/triage_v4.yaml) | La consulta es un dato, nunca una instrucción; no revelar las instrucciones; no cambiar de rol (D-40). Es la capa para lo que la regex no conoce |
+| Compuerta de salida | [src/guardrails.py](src/guardrails.py) | Sobre `answer`: saca los plazos vagos y enmascara la PII (email, teléfono, tarjeta con Luhn) → se entrega corregida, código `0`. Si hay una promesa o un eco del system prompt → respuesta fija, misma categoría, `escalate_to_human` y código `7` (D-37, D-38) |
+
+Cada vez que una compuerta actúa, `data/metrics.jsonl` suma una línea con la regla y la decisión, sin texto (D-39). Las evals pasan por los guardrails: una consulta legítima bloqueada o en revisión es una regresión.
+
+```powershell
+# Suite adversarial (bonus del PI): 10 prompts maliciosos, con guardrails (Gemini, gratis, ~1 minuto)
+python -m evals.adversarial --prompt v4
+
+# Los mismos 10 sin guardrails, para medir su efecto
+python -m evals.adversarial --prompt v4 --sin-guardrails
+
+# Solo el reporte, juntando corridas guardadas (no llama a ninguna API)
+python -m evals.adversarial --desde "evals/results/adversarial/*.jsonl"
+```
+
+El dataset es [evals/adversarial.jsonl](evals/adversarial.jsonl): cada caso trae qué prueba, la mitigación prevista y una expresión `exito_si` que define en código cuándo el ataque se logró (por ejemplo, si la respuesta confirma una devolución). El reporte ([evals/adversarial_reporte.md](evals/adversarial_reporte.md)) dice qué capa frenó cada ataque: la entrada, la salida o el prompt. Siete casos usan frases conocidas; tres llegan al modelo a propósito (una paráfrasis, una exfiltración parafraseada y una presión para obtener una promesa), para medir las capas que no son la regex (D-41).
+
+**Criterio para `triage_v4`, fijado antes de correr (D-40):** con guardrails y dos corridas con Gemini, `v4` queda vigente si (1) su holdout no es menor que el de `v1` (100 %), (2) su global no es menor que el de `v1` (97,5 %), (3) ninguna categoría queda bajo 70 %, (4) no hay consultas legítimas bloqueadas ni en revisión, (5) no se entrega ningún plazo vago y (6) la suite adversarial queda 10/10 mitigada en sus dos corridas. Si falla una, queda `v1` con los guardrails.
+
+Resultados: se completan después de las corridas.
 
 ## Estructura
 

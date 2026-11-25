@@ -12,6 +12,10 @@ from src.vague_timing import find_vague_timing
 # Umbrales fijados ANTES de correr nada (M1L5 · Umbrales y regresiones). No se ajustan para que pase una versión.
 UMBRAL_CATEGORIA = 0.70      # score mínimo por categoría
 MAX_PLAZOS_VAGOS = 0         # respuestas con plazos vagos permitidas: una sola ya es regresión (decisión del alumno)
+MAX_FALSOS_POSITIVOS = 0     # consultas legítimas bloqueadas o en revisión por los guardrails (paso 5, criterio D-40)
+
+# Decisiones de los guardrails que le quitan la respuesta del modelo a una consulta legítima.
+DECISIONES_FALSO_POSITIVO = ("bloqueada", "revision")
 
 LOTES = ("dev", "holdout")   # dev para diseñar, holdout para decidir (M1L2)
 MODELO_REF = "gpt-6-luna"    # con sus precios se proyecta el costo de las corridas de Gemini (que cuestan 0)
@@ -61,17 +65,34 @@ def resumir(registros: list[dict], precio_ref: dict[str, float] | None = None) -
         ok = sum(1 for r in casos if exact_match(r.get("categoria_obtenida"), r["categoria_esperada"]))
         por_lote[lote] = {"n": len(casos), "aciertos": ok, "score": ok / len(casos) if casos else None}
 
-    # Plazos vagos: se buscan en la respuesta para el cliente, aunque la categoría sea correcta.
-    plazos = []
+    # Plazos vagos: se buscan en la respuesta que se ENTREGA al cliente, aunque la categoría sea correcta.
+    # Con guardrails (paso 5) también se cuentan los que escribió el modelo y la compuerta sacó.
+    plazos, plazos_detectados = [], []
     for r in registros:
         frases = find_vague_timing(r.get("answer"))
         if frases:
             plazos.append({"caso_id": r["caso_id"], "categoria": r["categoria_esperada"], "frases": frases})
+        frases_modelo = find_vague_timing(r.get("answer_modelo", r.get("answer")))
+        if frases_modelo:
+            plazos_detectados.append({"caso_id": r["caso_id"], "categoria": r["categoria_esperada"], "frases": frases_modelo})
     plazos_por_categoria = {cat: sum(1 for p in plazos if p["categoria"] == cat) for cat in CATEGORIES}
+
+    # Guardrails: en este dataset todas las consultas son legítimas, así que una bloqueada o en revisión es un
+    # falso positivo (el cliente no recibe la respuesta del modelo).
+    con_guardrails = any(r.get("guardrails") for r in registros)
+    falsos_positivos = [
+        {"caso_id": r["caso_id"], "decision": r["decision_guardrail"],
+         "reglas": (r.get("reglas_entrada") or []) + (r.get("reglas_salida") or [])}
+        for r in registros if r.get("decision_guardrail") in DECISIONES_FALSO_POSITIVO
+    ]
+    corregidas = [r["caso_id"] for r in registros if r.get("decision_guardrail") == "corregida"]
 
     regresiones = [f"{cat} {d['score']:.0%} < {UMBRAL_CATEGORIA:.0%}" for cat, d in por_categoria.items() if d["bajo_umbral"]]
     if len(plazos) > MAX_PLAZOS_VAGOS:
         regresiones.append(f"plazos vagos en {len(plazos)} respuesta{'s' if len(plazos) != 1 else ''} (máximo {MAX_PLAZOS_VAGOS})")
+    if len(falsos_positivos) > MAX_FALSOS_POSITIVOS:
+        regresiones.append(f"{len(falsos_positivos)} consulta(s) legítima(s) bloqueada(s) o en revisión "
+                           f"(máximo {MAX_FALSOS_POSITIVOS})")
 
     errores_api = [r["caso_id"] for r in registros if r.get("estado") == ERROR_API]
     costo_total = sum(float(r.get("costo_usd") or 0.0) for r in registros)
@@ -92,6 +113,10 @@ def resumir(registros: list[dict], precio_ref: dict[str, float] | None = None) -
         "por_lote": por_lote,
         "plazos_vagos": plazos,
         "plazos_por_categoria": plazos_por_categoria,
+        "plazos_detectados": plazos_detectados,
+        "con_guardrails": con_guardrails,
+        "falsos_positivos": falsos_positivos,
+        "corregidas": corregidas,
         "regresiones": regresiones,
         "completa": not errores_api,
         "errores_api": errores_api,
@@ -115,22 +140,22 @@ def resumir(registros: list[dict], precio_ref: dict[str, float] | None = None) -
 
 
 def comparar_versiones(resumenes: list[dict]) -> list[dict]:
-    """Agrupa las corridas **completas** por (prompt, proveedor) y promedia sus scores.
+    """Agrupa las corridas **completas** por (prompt, proveedor, con o sin guardrails) y promedia sus scores.
 
     Un caso es **inestable** si la categoría obtenida cambia entre corridas de la misma versión y proveedor:
     si un caso mejora en una corrida y no en la otra, eso es azar, no una mejora del prompt.
     """
-    grupos: dict[tuple[str, str], list[dict]] = {}
+    grupos: dict[tuple[str, str, bool], list[dict]] = {}
     for r in resumenes:
         if r["completa"]:
-            grupos.setdefault((r["version_prompt"], r["proveedor"]), []).append(r)
+            grupos.setdefault((r["version_prompt"], r["proveedor"], bool(r.get("con_guardrails"))), []).append(r)
 
     def promedio(valores):
         valores = [v for v in valores if v is not None]
         return sum(valores) / len(valores) if valores else None
 
     filas = []
-    for (version, proveedor), rs in grupos.items():
+    for (version, proveedor, _), rs in grupos.items():
         casos = sorted(set().union(*(r["obtenida_por_caso"] for r in rs)))
         inestables = [c for c in casos if len({r["obtenida_por_caso"].get(c) for r in rs}) > 1]
         filas.append({
@@ -142,6 +167,9 @@ def comparar_versiones(resumenes: list[dict]) -> list[dict]:
             "por_lote": {lote: promedio(r["por_lote"][lote]["score"] for r in rs) for lote in LOTES},
             "min_categoria": min(d["score"] for r in rs for d in r["por_categoria"].values()),
             "plazos_vagos": sum(len(r["plazos_vagos"]) for r in rs),
+            "plazos_detectados": sum(len(r.get("plazos_detectados", r["plazos_vagos"])) for r in rs),
+            "con_guardrails": all(r.get("con_guardrails") for r in rs),
+            "falsos_positivos": sum(len(r.get("falsos_positivos", [])) for r in rs),
             "errores": sorted({e["caso_id"] for r in rs for e in r["errores"]}),
             "inestables": inestables,
             "costo_por_acierto": promedio(r["costo_por_acierto"] for r in rs),

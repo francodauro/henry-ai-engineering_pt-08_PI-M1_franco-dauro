@@ -8,18 +8,23 @@ Dos capas de reintento distintas, que no se mezclan:
 
 El error va al **system prompt** (es una corrección de cómo responder, no un dato del cliente). Se agrega
 solo el último error, para que el prompt no crezca en cada intento.
+
+``guarded_triage`` (paso 5) envuelve a ``triage`` con las dos compuertas de ``src/guardrails.py``: la de entrada
+antes de llamar al modelo y la de salida antes de entregar la respuesta.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
+from . import guardrails
 from .contract import TRIAGE_TOOL, TriageResult, describe_errors, error_codes
 from .llm.base import TOOL_BAD_JSON, TOOL_NO_CALL, TOOL_NOT_OBJECT, LLMResponse
 from .llm.router import Router
+from .metrics import MetricsLog
 from .prompts import PromptTemplate, render_system, render_user
 
 RETRY_NOTE = "\n\n(Tu respuesta anterior fue inválida: {error}. Corrígela y vuelve a llamar a la función {tool}.)"
@@ -52,6 +57,10 @@ class TriageOutcome:
     prompt_version: str
 
 
+def new_request_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
 def validate(response: LLMResponse) -> tuple[TriageResult | None, str | None, list[str]]:
     """Valida la respuesta contra el contrato. Devuelve (resultado, error para el modelo, códigos para métricas)."""
     if response.tool_args is None:
@@ -64,7 +73,7 @@ def validate(response: LLMResponse) -> tuple[TriageResult | None, str | None, li
 
 
 def triage(query: str, router: Router, template: PromptTemplate, *, max_attempts: int = 3,
-           on_retry=None) -> TriageOutcome:
+           on_retry=None, request_id: str | None = None) -> TriageOutcome:
     """Clasifica ``query`` y devuelve un contrato válido.
 
     :param on_retry: función opcional ``(intento, error)`` para avisar al usuario que se reintenta.
@@ -75,7 +84,7 @@ def triage(query: str, router: Router, template: PromptTemplate, *, max_attempts
     if not query or not query.strip():
         raise InvalidQueryError("La consulta está vacía.")
 
-    request_id = uuid.uuid4().hex[:12]  # agrupa en las métricas los intentos de una misma consulta
+    request_id = request_id or new_request_id()  # agrupa en las métricas los intentos de una misma consulta
     base_system = render_system(template)
     user = render_user(template, query.strip())
     error: str | None = None
@@ -99,3 +108,53 @@ def triage(query: str, router: Router, template: PromptTemplate, *, max_attempts
         if on_retry is not None and attempt < max_attempts:
             on_retry(attempt, error)
     raise ContractError(f"Ningún intento cumplió el contrato. Último error: {error}", max_attempts)
+
+
+# --------------------------------------------------------------------------- con guardrails (paso 5)
+
+
+@dataclass
+class GuardedOutcome:
+    """Resultado del triage con las dos compuertas. ``result`` es siempre un contrato válido: lo que se entrega."""
+
+    result: TriageResult
+    decision: str                       # guardrails.OK, CORRECTED, BLOCKED o REVIEW
+    request_id: str
+    prompt_version: str
+    input_rules: list[str] = field(default_factory=list)
+    output_rules: list[str] = field(default_factory=list)
+    vague_removed: list[str] = field(default_factory=list)
+    model_answer: str | None = None     # lo que escribió el modelo, antes de la compuerta de salida
+    outcome: TriageOutcome | None = None  # None si la consulta se bloqueó (no se llamó al modelo)
+
+
+def guarded_triage(query: str, router: Router, template: PromptTemplate, metrics: MetricsLog, *,
+                   max_attempts: int = 3, on_retry=None, context: dict | None = None) -> GuardedOutcome:
+    """Triage con la compuerta de entrada antes del modelo y la de salida después (M1L4 · dos compuertas).
+
+    Cuando una compuerta actúa, deja una línea en ``data/metrics.jsonl`` con qué regla y qué decisión, sin el
+    texto. Una consulta bloqueada no llama al modelo: su línea es la única de ese request (tokens y costo 0).
+
+    :raises InvalidQueryError, ContractError, AllProvidersFailedError: igual que ``triage``.
+    """
+    if not query or not query.strip():
+        raise InvalidQueryError("La consulta está vacía.")
+    request_id = new_request_id()
+    base = {**(context or {}), "event": "guardrail", "prompt_version": template.version, "request_id": request_id}
+
+    input_rules = guardrails.check_input(query)
+    if input_rules:
+        metrics.append({**base, "gate": "entrada", "decision": guardrails.BLOCKED, "rules": input_rules,
+                        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "latency_s": 0.0,
+                        "cost_usd": 0.0})
+        return GuardedOutcome(guardrails.blocked_result(), guardrails.BLOCKED, request_id, template.version,
+                              input_rules=input_rules)
+
+    outcome = triage(guardrails.escape_tags(query), router, template, max_attempts=max_attempts,
+                     on_retry=on_retry, request_id=request_id)
+    checked = guardrails.check_output(outcome.result)
+    if checked.decision != guardrails.OK:
+        metrics.append({**base, "gate": "salida", "decision": checked.decision, "rules": checked.rules, "cost_usd": 0.0})
+    return GuardedOutcome(checked.result, checked.decision, request_id, template.version,
+                          output_rules=checked.rules, vague_removed=checked.vague_removed,
+                          model_answer=outcome.result.answer, outcome=outcome)

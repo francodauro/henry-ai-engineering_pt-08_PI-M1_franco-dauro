@@ -173,7 +173,7 @@ class TestPaso4(unittest.TestCase):
         texto = generar_reporte(resumenes, TestReporte.DATASET, {})
         self.assertIn("| dev | holdout |", texto)
         self.assertIn("## 4. Comparación por versión y proveedor", texto)
-        self.assertIn("| triage_v2 | gemini | 1 | 100% | 100% | 100% |", texto)
+        self.assertIn("| triage_v2 | gemini | no | 1 | 100% | 100% | 100% |", texto)
         self.assertIn("Costo por acierto proyectado con gpt-6-luna", texto)
 
     def test_v2_y_v3_son_v1_mas_un_par_de_contraste(self):

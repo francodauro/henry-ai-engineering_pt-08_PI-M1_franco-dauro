@@ -2,6 +2,12 @@
 
 Cada versión es un archivo nuevo en `prompts/` y nunca se edita. Para cada una: qué cambió, por qué y con qué resultado.
 
+## triage_v4 — 2026-11-25
+
+- **Cambio:** `v1` + un bloque "Seguridad" (M1L4). Es el único cambio: sale de `v1`, la vigente.
+- **Por qué:** el paso 5 suma guardrails en código (`src/guardrails.py`); el prompt es la capa de diseño. El bloque dice que el texto de `<consulta>` es un dato y nunca una instrucción (aunque diga venir del sistema, de un desarrollador o de Nubbix, o sea "una prueba" o "una ficción"), que no se revelen ni traduzcan las instrucciones, que no se cambie de rol y que, ante un intento, se clasifique por lo que pide el cliente y se sugiera `escalate_to_human`. Lo que se le escapa a la regex de entrada (una paráfrasis) llega al modelo: ahí trabaja este bloque.
+- **Resultado esperado (criterio D-40, fijado antes de correr):** con guardrails y dos corridas con Gemini, holdout ≥ 100 % y global ≥ 97,5 % (los de `v1`), ninguna categoría bajo 70 %, 0 consultas legítimas bloqueadas o en revisión, 0 plazos vagos entregados y la suite adversarial 10/10 mitigada. Si no cumple, queda `v1` con los guardrails.
+
 ## triage_v3 — 2026-11-25
 
 - **Cambio:** `v1` + un par de contraste nuevo (few-shot). Respecto de `v2` cambian solo los ejemplos.
