@@ -1,7 +1,10 @@
 # Versiones exactas, para que la instalación sea reproducible.
 # Instalar con:  pip install -r requirements.txt
-# Paso 0: solo los SDK de los dos proveedores y la carga del .env.
-# Se agregan más dependencias en los pasos que las usen.
+# Cada dependencia se agregó en el paso que la usa.
 google-genai==3.5.0
 openai==3.55.0
 python-dotenv==1.2.3
+# Paso 2: contrato de salida validado (M1L3).
+pydantic==2.14.4
+# Paso 2: lectura de los prompts versionados en YAML (yaml.safe_load).
+PyYAML==6.0.3

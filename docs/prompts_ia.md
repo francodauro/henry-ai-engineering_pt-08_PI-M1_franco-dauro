@@ -104,3 +104,56 @@ Contrato JSON, prompts del triage en YAML, evals y guardrails: van en los pasos 
   (25/11/2026): `gpt-6-luna` cuesta USD 0.10 / 0.50 por 1M de tokens y ninguno de los dos modelos tiene baja anunciada.
 - Pedir que el respaldo se pueda forzar (`--proveedor openai`) permite probarlo sin esperar a que Gemini falle.
 - Escribir el criterio de "terminado" fijó la verificación del costo: tokens × precio, a mano.
+
+---
+
+## Paso 2 — Contrato JSON (25/11/2026)
+
+```text
+## Contexto
+Sigo con el repositorio `henry-ai-engineering_pt-08_PI-M1_franco-dauro` (Proyecto Integrador M1
+de Henry: triage de consultas de soporte de Nubbix). El paso 1 dejó el cliente multi-proveedor
+(Gemini primario, OpenAI respaldo) con reintentos, costo y métricas. Windows 11 / PowerShell.
+
+## Tarea de este paso
+Que la CLI devuelva una respuesta estructurada y validada con el contrato del PI, y crear el primer
+prompt del triage.
+
+## Requisitos
+- Contrato Pydantic `{answer, confidence, category, actions}` con tipo y dominio bien definidos:
+  - `answer`: texto no vacío, la respuesta para el cliente;
+  - `confidence`: número entre 0 y 1 (cuán seguro está el modelo de la categoría);
+  - `category`: solo `billing`, `technical`, `account` u `other`;
+  - `actions`: lista no vacía de acciones de una lista cerrada, para el agente humano.
+  Categorías y acciones definidas en un solo lugar (única fuente de verdad).
+- Tool calling forzado en Gemini y en OpenAI: el modelo está obligado a "llenar el formulario"
+  del contrato, y el schema sale del modelo Pydantic (no se escribe dos veces).
+- Si la respuesta no cumple el contrato, reintentar (hasta 3 intentos) diciéndole al modelo qué campo
+  falló y por qué. Si se agotan los intentos, error con su propio código de salida.
+- Primer prompt del triage `v1` en `prompts/triage_v1.yaml`: quién es (soporte de Nubbix), qué hace
+  cada categoría y qué no puede prometer. El prompt va en YAML, nunca dentro del código.
+- La CLI devuelve por la salida estándar solo el JSON validado, consumible por otro sistema sin
+  transformaciones. Los avisos y el detalle, por la salida de errores.
+- Las métricas registran también si la respuesta cumplió el contrato, en qué intento y qué campo falló
+  (sin el texto de la consulta ni de la respuesta).
+- Validación de lo que se proponga contra la M1L3 de Henry y mi proyecto de referencia `nubbix-triage`:
+  las categorías, el dominio de cada campo, la lista de acciones y las reglas del prompt. Si algo
+  difiere entre los dos, avisame antes de decidir.
+- Tests con `unittest`, sin llamadas reales a las APIs.
+
+## Fuera de alcance
+Dataset y evals (paso 3), más versiones del prompt (paso 4), guardrails (paso 5).
+
+## Terminado cuando
+- Pasan todos los tests.
+- Una consulta real devuelve por la salida estándar un JSON que cumple el contrato.
+- Un contrato inválido de prueba (por ejemplo `category: "factura"` o `confidence: 47`) se rechaza con
+  un mensaje que dice qué campo falló.
+```
+
+**Cómo influyó en las decisiones** (detalle en [DECISIONES.md](DECISIONES.md), D-10 a D-16)
+- El borrador del alumno decía "`confidence` es 70 %". Al revisarlo se separaron dos conceptos: `confidence`
+  es el número entre 0 y 1 que informa el modelo en cada respuesta (M1L3), y el 70 % es el umbral por
+  categoría de las evals (M1L5, paso 3).
+- Pedir la validación contra la M1L3 y `nubbix-triage` llevó a comparar las acciones con el ejemplo de Henry
+  antes de adoptarlas (D-12), y a que el alumno decidiera incluir en `v1` la regla contra los plazos vagos (D-15).

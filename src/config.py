@@ -41,8 +41,13 @@ class Settings:
     max_wait_seconds: float
     timeout_seconds: float
     budget_usd: float
+    # Versión del prompt por defecto (prompts/<versión>.yaml); la CLI la cambia con --prompt.
+    prompt_version: str = "triage_v1"
+    # Intentos para obtener un contrato válido: el primero + reintentos con el error (M1L3).
+    contract_max_attempts: int = 3
     pricing_path: Path = PROJECT_ROOT / "config" / "pricing.json"
     metrics_path: Path = PROJECT_ROOT / "data" / "metrics.jsonl"
+    prompts_dir: Path = PROJECT_ROOT / "prompts"
 
 
 def _get(name: str, default: str) -> str:
@@ -93,4 +98,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
         max_wait_seconds=_number("LLM_MAX_WAIT_SECONDS", 10.0),
         timeout_seconds=_number("LLM_TIMEOUT_SECONDS", 30.0, float, 1),
         budget_usd=_number("BUDGET_USD", 4.50),
+        prompt_version=_get("PROMPT_VERSION", "triage_v1"),
+        contract_max_attempts=int(_number("CONTRACT_MAX_ATTEMPTS", 3, int, 1)),
     )

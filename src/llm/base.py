@@ -5,12 +5,35 @@ del sistema no sabe (ni le importa) qué proveedor respondió. Sumar un proveedo
 
 Los errores de cada SDK se traducen a las subclases de ``ProviderError`` de este archivo. Cada una
 dice si es transitoria (``retryable``): solo esas se reintentan.
+
+Tool calling (paso 2): ``complete(..., tool=...)`` obliga al modelo a "llenar el formulario" de una
+función. OpenAI entrega los argumentos como texto JSON y Gemini como dict: cada proveedor los convierte
+y deja siempre un dict en ``tool_args`` (o ``None`` con el motivo en ``tool_error``).
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """Función que el modelo está obligado a llamar. No existe en Python: es un formulario.
+
+    ``parameters`` es el JSON Schema de sus argumentos (sale del contrato Pydantic).
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+# Por qué ``tool_args`` quedó en None (se registra y se le explica al modelo al reintentar).
+TOOL_NO_CALL = "sin_tool_call"        # respondió texto en vez de llamar a la función
+TOOL_BAD_JSON = "json_invalido"       # OpenAI: los argumentos no son JSON válido (por ejemplo, cortados)
+TOOL_NOT_OBJECT = "args_no_objeto"    # el JSON es válido pero no es un objeto {...}
 
 
 @dataclass
@@ -26,6 +49,9 @@ class LLMResponse:
     latency_s: float
     # Lo completa el router con config/pricing.json (el proveedor no conoce los precios).
     cost_usd: float = 0.0
+    # Solo con tool calling: argumentos como dict, o None con el motivo en tool_error.
+    tool_args: dict[str, Any] | None = None
+    tool_error: str | None = None
 
 
 # --------------------------------------------------------------------------- errores
@@ -128,8 +154,9 @@ class LLMProvider(ABC):
         self.timeout_s = timeout_s
 
     @abstractmethod
-    def complete(self, prompt: str, system: str | None = None) -> LLMResponse:
+    def complete(self, prompt: str, system: str | None = None, tool: ToolSpec | None = None) -> LLMResponse:
         """Envía ``prompt`` (y las instrucciones ``system``, si hay) y devuelve un ``LLMResponse``.
 
-        Debe traducir los errores del SDK a subclases de ``ProviderError``.
+        Con ``tool``, obliga al modelo a llamar a esa función y completa ``tool_args``. No valida el
+        contenido: eso lo hace el contrato Pydantic. Debe traducir los errores del SDK a ``ProviderError``.
         """

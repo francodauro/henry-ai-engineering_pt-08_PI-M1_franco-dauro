@@ -4,16 +4,18 @@
 - Antes de llamar a un proveedor pago se suma lo gastado en ``data/metrics.jsonl``; si llegó a
   ``budget_usd``, ese proveedor no se llama.
 - Cada intento por proveedor (exitoso, fallido u omitido) deja una línea en las métricas.
+- Con ``tool`` (paso 2) se fuerza la tool call; validar el contrato le toca a ``src/triage.py``, que
+  puede sumar campos a la línea de métricas con ``extra_fields`` (por ejemplo, si cumplió el contrato).
 """
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 from ..costs import Pricing
 from ..metrics import MetricsLog
 from ..retry import call_with_backoff
-from .base import AllProvidersFailedError, BudgetExceededError, LLMProvider, LLMResponse, ProviderError
+from .base import AllProvidersFailedError, BudgetExceededError, LLMProvider, LLMResponse, ProviderError, ToolSpec
 
 
 class Router:
@@ -41,14 +43,27 @@ class Router:
         # Se llama cada vez que un proveedor falla o se omite, para que la CLI avise al usuario.
         self._on_failure = on_failure
 
-    def ask(self, prompt: str, system: str | None = None) -> LLMResponse:
-        """Devuelve la respuesta del primer proveedor que responda. Si ninguno puede, lanza ``AllProvidersFailedError``."""
+    def ask(
+        self,
+        prompt: str,
+        system: str | None = None,
+        *,
+        tool: ToolSpec | None = None,
+        context: dict[str, Any] | None = None,
+        extra_fields: Callable[[LLMResponse], dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        """Devuelve la respuesta del primer proveedor que responda. Si ninguno puede, lanza ``AllProvidersFailedError``.
+
+        ``context`` se agrega a todas las líneas de métricas de esta llamada (por ejemplo, la versión del prompt).
+        ``extra_fields`` recibe la respuesta exitosa y devuelve campos para su línea. Nunca texto del cliente.
+        """
         errors: list[Exception] = []
         for index, provider in enumerate(self.providers):
             base = {
                 "provider": provider.name,
                 "model": provider.model,
                 "temperature": provider.temperature,
+                **(context or {}),
                 "fallback": index > 0,
             }
 
@@ -68,7 +83,7 @@ class Router:
             if self._sleep is not None:
                 kwargs["sleep"] = self._sleep
             try:
-                response, attempts = call_with_backoff(lambda p=provider: p.complete(prompt, system), **kwargs)
+                response, attempts = call_with_backoff(lambda p=provider: p.complete(prompt, system, tool), **kwargs)
             except ProviderError as exc:
                 self.metrics.append({
                     **base,
@@ -82,7 +97,7 @@ class Router:
                 continue
 
             response.cost_usd = self.pricing.cost(response.model, response.prompt_tokens, response.completion_tokens)
-            self.metrics.append({
+            record = {
                 **base,
                 "status": "ok",
                 "attempts": attempts,
@@ -91,7 +106,10 @@ class Router:
                 "total_tokens": response.total_tokens,
                 "latency_s": round(response.latency_s, 3),
                 "cost_usd": response.cost_usd,
-            })
+            }
+            if extra_fields is not None:
+                record.update(extra_fields(response))
+            self.metrics.append(record)
             return response
 
         raise AllProvidersFailedError(errors)

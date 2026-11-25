@@ -3,10 +3,15 @@
 ``gpt-6-luna`` es un modelo de razonamiento. Con ``reasoning_effort="none"`` no "piensa" antes de
 responder: es más rápido, más barato y acepta ``temperature=0``.
 Los tokens salen del campo ``usage`` de la respuesta.
+
+Tool calling: ``tools`` + ``tool_choice`` con el nombre de la función obligan al modelo a llamarla.
+OpenAI entrega los argumentos como **texto JSON**: hay que convertirlo con ``json.loads``, que puede
+fallar si llegó cortado (por ejemplo, por el tope de tokens).
 """
 
 from __future__ import annotations
 
+import json
 import time
 
 import openai
@@ -23,6 +28,10 @@ from .base import (
     QuotaExhaustedError,
     RateLimitError,
     ServerError,
+    TOOL_BAD_JSON,
+    TOOL_NO_CALL,
+    TOOL_NOT_OBJECT,
+    ToolSpec,
 )
 
 
@@ -54,7 +63,7 @@ class OpenAIProvider(LLMProvider):
         # max_retries=0: los reintentos los maneja src/retry.py, para no sumar los del SDK.
         self._client = openai.OpenAI(api_key=api_key, max_retries=0, timeout=timeout_s)
 
-    def complete(self, prompt: str, system: str | None = None) -> LLMResponse:
+    def complete(self, prompt: str, system: str | None = None, tool: ToolSpec | None = None) -> LLMResponse:
         messages = [{"role": "user", "content": prompt}]
         if system:
             messages.insert(0, {"role": "system", "content": system})
@@ -67,6 +76,11 @@ class OpenAIProvider(LLMProvider):
         }
         if self.reasoning_effort:
             params["reasoning_effort"] = self.reasoning_effort
+        if tool is not None:
+            params["tools"] = [{"type": "function", "function": {
+                "name": tool.name, "description": tool.description, "parameters": tool.parameters}}]
+            # Obliga a llamar a ESTA función (equivale a mode="ANY" de Gemini).
+            params["tool_choice"] = {"type": "function", "function": {"name": tool.name}}
 
         start = time.perf_counter()
         try:
@@ -90,9 +104,20 @@ class OpenAIProvider(LLMProvider):
             raise ProviderError(self.name, str(exc)) from exc
         latency = time.perf_counter() - start
 
-        text = (resp.choices[0].message.content or "").strip()
-        if not text:
-            raise EmptyResponseError(self.name, f"La respuesta llegó sin texto (finish_reason={resp.choices[0].finish_reason})")
+        message = resp.choices[0].message
+        tool_args, tool_error = None, None
+        if tool is not None:
+            calls = message.tool_calls or []
+            if calls:
+                text = calls[0].function.arguments or ""  # texto JSON
+                tool_args, tool_error = parse_arguments(text)
+            else:
+                text = (message.content or "").strip()
+                tool_error = TOOL_NO_CALL
+        else:
+            text = (message.content or "").strip()
+            if not text:
+                raise EmptyResponseError(self.name, f"La respuesta llegó sin texto (finish_reason={resp.choices[0].finish_reason})")
         usage = resp.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
@@ -104,4 +129,17 @@ class OpenAIProvider(LLMProvider):
             completion_tokens=completion_tokens,
             total_tokens=usage.total_tokens if usage else prompt_tokens + completion_tokens,
             latency_s=latency,
+            tool_args=tool_args,
+            tool_error=tool_error,
         )
+
+
+def parse_arguments(raw: str) -> tuple[dict | None, str | None]:
+    """Convierte el texto JSON de OpenAI en dict. Devuelve (args, None) o (None, motivo)."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, TOOL_BAD_JSON
+    if not isinstance(data, dict):
+        return None, TOOL_NOT_OBJECT
+    return data, None

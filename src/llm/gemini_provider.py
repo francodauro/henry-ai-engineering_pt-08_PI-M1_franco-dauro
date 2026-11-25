@@ -2,10 +2,15 @@
 
 Los tokens salen del ``usage_metadata`` que devuelve la API (Google no tiene un tokenizer local).
 Los tokens de "pensamiento" del modelo se cuentan como salida: Google los cobra como salida.
+
+Tool calling: el schema va en ``FunctionDeclaration(parameters_json_schema=...)``; ``mode="ANY"`` con un
+único nombre permitido obliga a llamar a esa función, y ``automatic_function_calling`` desactivado evita
+que el SDK intente ejecutar algo. Gemini entrega los argumentos ya como dict.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -24,6 +29,8 @@ from .base import (
     ProviderTimeoutError,
     RateLimitError,
     ServerError,
+    TOOL_NO_CALL,
+    ToolSpec,
 )
 
 
@@ -78,15 +85,29 @@ class GeminiProvider(LLMProvider):
         # Timeout en milisegundos. Los reintentos no los hace el SDK: los maneja src/retry.py.
         self._client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
 
-    def complete(self, prompt: str, system: str | None = None) -> LLMResponse:
-        config = types.GenerateContentConfig(
-            system_instruction=system or None,
-            temperature=self.temperature,
-            max_output_tokens=self.max_tokens,
-        )
+    def _config(self, system: str | None, tool: ToolSpec | None) -> types.GenerateContentConfig:
+        params = {
+            "system_instruction": system or None,
+            "temperature": self.temperature,
+            "max_output_tokens": self.max_tokens,
+        }
+        if tool is not None:
+            declaration = types.FunctionDeclaration(
+                name=tool.name, description=tool.description, parameters_json_schema=tool.parameters
+            )
+            params["tools"] = [types.Tool(function_declarations=[declaration])]
+            # mode="ANY" + un solo nombre permitido = el modelo está obligado a llamar a esta función.
+            params["tool_config"] = types.ToolConfig(function_calling_config=types.FunctionCallingConfig(
+                mode="ANY", allowed_function_names=[tool.name]))
+            # Solo queremos los argumentos: que el SDK no intente ejecutar ninguna función.
+            params["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+        return types.GenerateContentConfig(**params)
+
+    def complete(self, prompt: str, system: str | None = None, tool: ToolSpec | None = None) -> LLMResponse:
         start = time.perf_counter()
         try:
-            resp = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
+            resp = self._client.models.generate_content(
+                model=self.model, contents=prompt, config=self._config(system, tool))
         except errors.APIError as exc:
             raise _translate(self.name, exc) from exc
         except Exception as exc:  # errores de red del cliente HTTP
@@ -98,9 +119,19 @@ class GeminiProvider(LLMProvider):
             raise
         latency = time.perf_counter() - start
 
-        text = (resp.text or "").strip()
-        if not text:
-            raise EmptyResponseError(self.name, "La respuesta llegó sin texto")
+        tool_args, tool_error = None, None
+        if tool is not None:
+            calls = resp.function_calls or []
+            if calls:
+                tool_args = dict(calls[0].args or {})
+                text = json.dumps(tool_args, ensure_ascii=False)
+            else:
+                tool_error = TOOL_NO_CALL
+                text = _text_parts(resp)
+        else:
+            text = (resp.text or "").strip()
+            if not text:
+                raise EmptyResponseError(self.name, "La respuesta llegó sin texto")
         prompt_tokens, completion_tokens, total = usage_tokens(resp.usage_metadata)
         return LLMResponse(
             provider=self.name,
@@ -110,7 +141,18 @@ class GeminiProvider(LLMProvider):
             completion_tokens=completion_tokens,
             total_tokens=total,
             latency_s=latency,
+            tool_args=tool_args,
+            tool_error=tool_error,
         )
+
+
+def _text_parts(resp: Any) -> str:
+    """Texto de la respuesta sin pasar por ``resp.text`` (que avisa si hay partes que no son texto)."""
+    try:
+        parts = resp.candidates[0].content.parts or []
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return " ".join(p.text for p in parts if getattr(p, "text", None)).strip()
 
 
 def _translate(provider: str, exc: errors.APIError) -> ProviderError:
