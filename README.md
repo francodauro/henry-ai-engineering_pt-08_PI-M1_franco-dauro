@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado; la suite de evals mide la calidad sobre 40 casos y compara `triage_v1` (zero-shot) contra dos intentos few-shot, `triage_v2` y `triage_v3`. El proyecto se construye paso a paso.
+> **Estado: paso 4 — comparación de prompts.** La CLI devuelve el contrato validado con `triage_v1`, la versión vigente; la suite de evals mide la calidad sobre 40 casos y la comparó contra dos intentos few-shot (`triage_v2` y `triage_v3`). El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -174,16 +174,21 @@ Criterio fijado antes de correr (sobre dos corridas con Gemini por versión): `v
 
 Resultados con Gemini (dos corridas por versión; reporte completo en [evals/reporte.md](evals/reporte.md)):
 
-| Criterio | `v1` | `v2` | ¿`v2` cumple? |
-|---|---:|---:|---|
-| Holdout ≥ `v1` | 100 % | 97,5 % (NX-040 mal en una corrida) | ❌ |
-| Global ≥ `v1` | 97,5 % | 98,75 % | ✅ |
-| Ninguna categoría < 70 % | 90 % la peor | 90 % la peor | ✅ |
-| Plazos vagos ≤ `v1` | 3 | 8 | ❌ |
-| NX-008 bien en las dos corridas | 0 de 2 | 2 de 2 | ✅ |
-| Costo por acierto proyectado con `gpt-6-luna` | USD 0.000144 | USD 0.000151 (+5 %, unos 95 tokens más por consulta) | (informa) |
+| Criterio | `v1` | `v2` | `v3` |
+|---|---:|---:|---:|
+| 1. Holdout ≥ `v1` | 100 % | 97,5 % ❌ (NX-040 mal en una corrida) | 100 % ✅ |
+| 2. Global ≥ `v1` | 97,5 % | 98,75 % ✅ | 98,75 % ✅ |
+| 3. Ninguna categoría < 70 % | 90 % la peor | 90 % la peor ✅ | 90 % la peor ✅ |
+| 4. Plazos vagos ≤ `v1` | 3 | 8 ❌ | 6 ❌ |
+| 5. NX-008 bien en las dos corridas | 0 de 2 | 2 de 2 ✅ | 1 de 2 ❌ |
+| Costo por acierto proyectado con `gpt-6-luna` | USD 0.000144 | USD 0.000151 | USD 0.000152 |
+| **¿Queda vigente?** | **sí** | no | no |
 
-`v2` arregló NX-008, pero **no cumple el criterio** y no queda vigente. Con `gpt-6-luna` (98 %, USD 0.006062) arregló NX-008 y rompió NX-036 ("¿cuánto cuesta agregar el módulo de sucursales?"): el ejemplo de `billing` ("sumar el módulo… ¿cuánto aumenta la cuota?") se parecía demasiado a esa pregunta de precio. De ahí sale `v3`: la misma técnica con ejemplos mejor elegidos, contra el mismo criterio. Resultados de `v3`: pendientes.
+Con `gpt-6-luna` (una corrida por versión): `v1` 98 % (falla NX-008) · `v2` 98 % (arregla NX-008, rompe NX-036) · `v3` **100 %**, sin plazos vagos.
+
+**Conclusión:** Probé dos versiones few-shot contra `v1`, cada una con el criterio de cinco condiciones commiteado antes de correr. `triage_v2` arregló NX-008, pero su ejemplo de `billing` ("sumar el módulo… ¿cuánto aumenta la cuota?") se parecía demasiado a una pregunta de precio: con `gpt-6-luna` rompió NX-036, y con Gemini bajó el holdout. En `triage_v3` cambié solo los ejemplos por un tema que no aparece en el dataset (almacenamiento extra), con los dos casos iguales salvo la intención. Eso corrigió el problema de `v2`: holdout 100 % y, con `gpt-6-luna`, 100 % sin plazos vagos. Pero con Gemini, el primario, NX-008 salió bien en una sola de las dos corridas, y los plazos vagos subieron de 3 a 6. Ninguna de las dos cumple el criterio, así que **`triage_v1` sigue vigente**.
+
+Lo que aprendí: en few-shot, el ejemplo importa tanto como la técnica (un ejemplo que se parece en la superficie al caso de enfrente mueve el límite para ese lado), y un mismo prompt puede funcionar en un modelo y quedar inestable en otro. No cambio el criterio después de ver los datos. El buen resultado de `gpt-6-luna` con `v3` lo retomo en la comparativa de modelos (paso 6), y los plazos vagos se resuelven en el paso 5 con el guardrail de salida, en código.
 
 ## Estructura
 

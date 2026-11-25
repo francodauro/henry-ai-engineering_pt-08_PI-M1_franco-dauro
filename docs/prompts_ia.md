@@ -304,3 +304,6 @@ Podríamos generar un mejor few shot?
 - El alumno eligió cambiar **solo los ejemplos** (no sumar la regla escrita que tenía `nubbix-triage` v9), para poder
   atribuir una mejora a la elección de los ejemplos, y prefirió no fijar todavía si `v3` es el último intento.
 - `v3` se compara contra `v1` con el mismo criterio de `v2` (D-30), commiteado antes de correr.
+- Cierre (D-33): `v3` tampoco cumplió el criterio con Gemini. Entre "cerrar con `v1` vigente" y "un intento más", el
+  alumno eligió cerrar: el buen resultado de `gpt-6-luna` con `v3` se retoma en el paso 6, y la IA redactó un borrador
+  de la conclusión del README que el alumno revisó antes de commitear.
