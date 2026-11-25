@@ -1,0 +1,7 @@
+# Versiones exactas, para que la instalación sea reproducible.
+# Instalar con:  pip install -r requirements.txt
+# Paso 0: solo los SDK de los dos proveedores y la carga del .env.
+# Se agregan más dependencias en los pasos que las usen.
+google-genai==3.5.0
+openai==3.55.0
+python-dotenv==1.2.3

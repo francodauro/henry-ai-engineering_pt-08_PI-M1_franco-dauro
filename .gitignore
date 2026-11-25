@@ -1,0 +1,28 @@
+# Solo se suben al repo los archivos de desarrollo.
+
+# --- Credenciales: el .env nunca se sube (su estructura está en .env.example) ---
+.env
+.env.*
+!.env.example
+
+# --- Entorno virtual: se recrea con requirements.txt ---
+.venv/
+venv/
+
+# --- Archivos generados por Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Editores y sistema operativo (Windows 11) ---
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# --- Datos ---
+# data/metrics.jsonl SÍ se sube: el checklist del PI pide al menos una ejecución
+# registrada con su línea de métricas (no guarda texto de consultas ni claves).
+data/*
+!data/.gitkeep
+!data/metrics.jsonl
