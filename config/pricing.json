@@ -1,0 +1,12 @@
+{
+  "_unidad": "USD por 1.000.000 de tokens, precio estándar (sin caché ni batch).",
+  "_fuentes": {
+    "gpt-6-luna": "https://developers.openai.com/api/docs/models/gpt-6-luna (consultada el 25/11/2026): entrada USD 0.10, salida USD 0.50. Sin aviso de baja.",
+    "gemini-3.5-flash-lite": "https://ai.google.dev/gemini-api/docs/pricing (consultada el 25/11/2026): plan gratuito sin cargo; plan pago entrada USD 0.30, salida USD 2.50. Se usa el plan gratuito (proyecto de Google sin facturación), por eso el costo es 0. Sin fecha de baja en https://ai.google.dev/gemini-api/docs/deprecations."
+  },
+  "_actualizado": "2026-11-25",
+  "models": {
+    "gemini-3.5-flash-lite": {"input": 0.0, "output": 0.0},
+    "gpt-6-luna": {"input": 0.10, "output": 0.50}
+  }
+}
