@@ -382,3 +382,5 @@ Moderador LLM, redacción de PII en la entrada, comparativa de modelos (paso 6).
   Gemini llegó a su límite diario; la IA lo confirmó leyendo la página de límites de Google AI Studio en el navegador (sin
   tocar la facturación). El alumno eligió cerrar el paso con lo que decide el criterio y completar esas corridas después.
   La IA redactó un borrador de la conclusión del README que el alumno revisó antes de commitear.
+- 26/11: con el cupo diario renovado, las dos corridas sin guardrails salieron completas (10/10 mitigados por el prompt).
+  La IA revisó las 20 respuestas a mano y propuso documentar el efecto tal como se midió (D-43), sin agregar casos a la suite.
