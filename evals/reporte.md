@@ -1,6 +1,6 @@
 # Reporte de evaluación · Triage Nubbix
 
-Generado el 25/11/2026 17:03 con `python -m evals.runner`. Umbral por categoría: 70%. Plazos vagos permitidos: 0. Consultas legítimas bloqueadas o en revisión permitidas: 0.
+Generado el 26/11/2026 12:04 con `python -m evals.runner`. Umbral por categoría: 70%. Plazos vagos permitidos: 0. Consultas legítimas bloqueadas o en revisión permitidas: 0.
 
 Desde el paso 5 las corridas pasan por los guardrails (columna *Guardrails*). En esas, los plazos vagos **entregados** son los que llegaron al cliente; los **corregidos** son los que escribió el modelo y la compuerta de salida sacó. Las corridas anteriores no tienen guardrails: lo que escribió el modelo es lo que se entregaba.
 
@@ -22,6 +22,11 @@ Dataset `evals/dataset.jsonl`: 40 casos (billing 10, technical 10, account 10, o
 | `20261125-160518_triage_v4_gemini` | gemini | gemini-3.5-flash-lite | triage_v4 | 40 | sí |
 | `20261125-161055_triage_v4_gemini` | gemini | gemini-3.5-flash-lite | triage_v4 | 40 | sí |
 | `20261125-161731_triage_v4_openai` | openai | gpt-6-luna | triage_v4 | 40 | sí |
+| `20261126-104847_triage_v4_gemini` | gemini | gemini-3.5-flash-lite | triage_v4 | 40 | sí |
+| `20261126-105616_triage_v4_gemini` | gemini | gemini-3.5-flash-lite | triage_v4 | 40 | sí |
+| `20261126-112909_triage_v4_openai` | openai | gpt-6-luna | triage_v4 | 40 | sí |
+| `20261126-113348_triage_v4_openai` | openai | gpt-6-luna | triage_v4 | 40 | sí |
+| `20261126-115407_triage_v4_openai` | openai | gpt-6-luna | triage_v4 | 40 | sí |
 
 ## 2. ¿Alguna categoría quedó bajo el umbral?
 
@@ -39,6 +44,11 @@ Dataset `evals/dataset.jsonl`: 40 casos (billing 10, technical 10, account 10, o
 | `20261125-160518_triage_v4_gemini` | sí | 100% (40/40) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 100% (20/20) | 100% (20/20) | 0 | 3 | 0 | OK |
 | `20261125-161055_triage_v4_gemini` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 4 | 0 | OK |
 | `20261125-161731_triage_v4_openai` | sí | 100% (40/40) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 100% (20/20) | 100% (20/20) | 0 | 0 | 0 | OK |
+| `20261126-104847_triage_v4_gemini` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 1 | 0 | OK |
+| `20261126-105616_triage_v4_gemini` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 3 | 0 | OK |
+| `20261126-112909_triage_v4_openai` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 0 | 0 | OK |
+| `20261126-113348_triage_v4_openai` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 0 | 0 | OK |
+| `20261126-115407_triage_v4_openai` | sí | 98% (39/40) | 90% (9/10) | 100% (10/10) | 100% (10/10) | 100% (10/10) | 95% (19/20) | 100% (20/20) | 0 | 0 | 0 | OK |
 
 ## 3. ¿El score y el costo por acierto cuentan la misma historia?
 
@@ -56,8 +66,13 @@ Dataset `evals/dataset.jsonl`: 40 casos (billing 10, technical 10, account 10, o
 | `20261125-160518_triage_v4_gemini` | 40/40 | 47439 / 2922 | USD 0.000000 | USD 0.000000 ✓ | USD 0.000000 | USD 0.000155 | 1.46 s |
 | `20261125-161055_triage_v4_gemini` | 39/40 | 47439 / 2869 | USD 0.000000 | USD 0.000000 ✓ | USD 0.000000 | USD 0.000158 | 2.05 s |
 | `20261125-161731_triage_v4_openai` | 40/40 | 46559 / 3381 | USD 0.006346 | USD 0.006346 ✓ | USD 0.000159 | USD 0.000159 | 1.69 s |
+| `20261126-104847_triage_v4_gemini` | 39/40 | 47439 / 2974 | USD 0.000000 | USD 0.000000 ✓ | USD 0.000000 | USD 0.000160 | 3.95 s |
+| `20261126-105616_triage_v4_gemini` | 39/40 | 47439 / 2982 | USD 0.000000 | USD 0.000000 ✓ | USD 0.000000 | USD 0.000160 | 4.70 s |
+| `20261126-112909_triage_v4_openai` | 39/40 | 46559 / 3385 | USD 0.006348 | USD 0.006348 ✓ | USD 0.000163 | USD 0.000163 | 1.52 s |
+| `20261126-113348_triage_v4_openai` | 39/40 | 46559 / 3404 | USD 0.006358 | USD 0.006358 ✓ | USD 0.000163 | USD 0.000163 | 1.48 s |
+| `20261126-115407_triage_v4_openai` | 39/40 | 46559 / 3372 | USD 0.006342 | USD 0.006342 ✓ | USD 0.000163 | USD 0.000163 | 1.51 s |
 
-Mejor score (100%): 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151947_triage_v3_openai, 20261125-160518_triage_v4_gemini, 20261125-161731_triage_v4_openai. Mejor costo por acierto (USD 0.000000): 20261125-130759_triage_v1_gemini, 20261125-142941_triage_v1_gemini, 20261125-143954_triage_v2_gemini, 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151223_triage_v3_gemini, 20261125-160518_triage_v4_gemini, 20261125-161055_triage_v4_gemini. **Cuentan la misma historia**: al menos una corrida es la mejor en las dos. Ojo: 20261125-130759_triage_v1_gemini, 20261125-142941_triage_v1_gemini, 20261125-143954_triage_v2_gemini, 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151223_triage_v3_gemini tiene regresiones (sección 2), aunque gane en score o en costo.
+Mejor score (100%): 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151947_triage_v3_openai, 20261125-160518_triage_v4_gemini, 20261125-161731_triage_v4_openai. Mejor costo por acierto (USD 0.000000): 20261125-130759_triage_v1_gemini, 20261125-142941_triage_v1_gemini, 20261125-143954_triage_v2_gemini, 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151223_triage_v3_gemini, 20261125-160518_triage_v4_gemini, 20261125-161055_triage_v4_gemini, 20261126-104847_triage_v4_gemini, 20261126-105616_triage_v4_gemini. **Cuentan la misma historia**: al menos una corrida es la mejor en las dos. Ojo: 20261125-130759_triage_v1_gemini, 20261125-142941_triage_v1_gemini, 20261125-143954_triage_v2_gemini, 20261125-144637_triage_v2_gemini, 20261125-150529_triage_v3_gemini, 20261125-151223_triage_v3_gemini tiene regresiones (sección 2), aunque gane en score o en costo.
 
 ## 4. Comparación por versión y proveedor
 
@@ -68,11 +83,11 @@ Promedio de las corridas completas de cada versión con cada proveedor. Un caso 
 | triage_v1 | gemini | no | 2 | 98% | 95% | 100% | 90% | 3 | 3 | — | NX-008 | ninguno | USD 0.000000 | USD 0.000144 |
 | triage_v2 | gemini | no | 2 | 99% | 100% | 98% | 90% | 8 | 8 | — | NX-040 | NX-040 | USD 0.000000 | USD 0.000151 |
 | triage_v3 | gemini | no | 2 | 99% | 98% | 100% | 90% | 6 | 6 | — | NX-008 | NX-008 | USD 0.000000 | USD 0.000152 |
-| triage_v4 | gemini | sí | 2 | 99% | 98% | 100% | 90% | 0 | 7 | 0 | NX-008 | NX-008 | USD 0.000000 | USD 0.000157 |
+| triage_v4 | gemini | sí | 4 | 98% | 96% | 100% | 90% | 0 | 11 | 0 | NX-008 | NX-008 | USD 0.000000 | USD 0.000158 |
 | triage_v1 | openai | no | 1 | 98% | 95% | 100% | 90% | 0 | 0 | — | NX-008 | ninguno | USD 0.000146 | USD 0.000146 |
 | triage_v2 | openai | no | 1 | 98% | 95% | 100% | 90% | 0 | 0 | — | NX-036 | ninguno | USD 0.000155 | USD 0.000155 |
 | triage_v3 | openai | no | 1 | 100% | 100% | 100% | 100% | 0 | 0 | — | ninguno | ninguno | USD 0.000152 | USD 0.000152 |
-| triage_v4 | openai | sí | 1 | 100% | 100% | 100% | 100% | 0 | 0 | 0 | ninguno | ninguno | USD 0.000159 | USD 0.000159 |
+| triage_v4 | openai | sí | 4 | 98% | 96% | 100% | 90% | 0 | 0 | 0 | NX-008 | NX-008 | USD 0.000162 | USD 0.000162 |
 
 ## Detalle de errores
 
@@ -151,6 +166,33 @@ Promedio de las corridas completas de cada versión con cada proveedor. Un caso 
 **`20261125-161731_triage_v4_openai`**
 
 - Categoría: ningún error.
+- Plazos vagos: ninguno.
+
+**`20261126-104847_triage_v4_gemini`**
+
+- Categoría: NX-008 esperaba `billing`, obtuvo `other`
+- Plazos vagos: ninguno.
+- Plazos vagos que sacó la compuerta de salida: NX-026 ("a la brevedad")
+
+**`20261126-105616_triage_v4_gemini`**
+
+- Categoría: NX-008 esperaba `billing`, obtuvo `other`
+- Plazos vagos: ninguno.
+- Plazos vagos que sacó la compuerta de salida: NX-011 ("a la brevedad"), NX-026 ("lo antes posible"), NX-029 ("a la brevedad")
+
+**`20261126-112909_triage_v4_openai`**
+
+- Categoría: NX-008 esperaba `billing`, obtuvo `other`
+- Plazos vagos: ninguno.
+
+**`20261126-113348_triage_v4_openai`**
+
+- Categoría: NX-008 esperaba `billing`, obtuvo `other`
+- Plazos vagos: ninguno.
+
+**`20261126-115407_triage_v4_openai`**
+
+- Categoría: NX-008 esperaba `billing`, obtuvo `other`
 - Plazos vagos: ninguno.
 
 ## Conclusión

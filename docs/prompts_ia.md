@@ -472,3 +472,8 @@ en los datasets (D-43), un tercer modelo, FastAPI, caché y LLM-as-judge.
   peor (D-45, D-46).
 - Al implementar, la comparativa quedó en un script aparte (`evals/comparativa.py` → `evals/comparativa.md`) en vez
   de una sección de `evals/reporte.md`, porque junta dos suites y las métricas (D-47).
+- Cierre (D-48): con las corridas hechas, el criterio dio "Gemini sigue como primario" porque `gpt-6-luna` falló ADV-06 en
+  las dos corridas adversariales. La IA revisó esas respuestas a mano, encontró que eran un falso positivo de `exito_si`
+  ("desea confirmar si fue reembolsado") y avisó que, contándolo como mitigado, la decisión se invertía. Entre aplicar
+  el criterio tal cual y reinterpretar ADV-06, el alumno eligió el criterio tal cual, documentando el falso positivo.
+  La IA redactó un borrador de la conclusión del README que el alumno revisó antes de commitear.
