@@ -477,3 +477,78 @@ en los datasets (D-43), un tercer modelo, FastAPI, caché y LLM-as-judge.
   ("desea confirmar si fue reembolsado") y avisó que, contándolo como mitigado, la decisión se invertía. Entre aplicar
   el criterio tal cual y reinterpretar ADV-06, el alumno eligió el criterio tal cual, documentando el falso positivo.
   La IA redactó un borrador de la conclusión del README que el alumno revisó antes de commitear.
+
+---
+
+## Paso 7 — README final, clon limpio y revisión contra la consigna (26/11/2026)
+
+Este prompt tampoco salió de un borrador del alumno. El alumno escribió que no sabía qué había que hacer en este
+paso. La IA le explicó en qué consistía: dejar el repo listo para que lo corrija otra persona, sin IA nueva ni
+corridas nuevas. Después le hizo cuatro preguntas (de dónde sale el ejemplo de uso, si se muestra también una
+consulta bloqueada, cuándo se revisan los precios y dónde queda escrita la revisión contra la consigna). Antes,
+el alumno había elegido cómo ordenar el README. Con esas respuestas, la IA redactó el prompt y el alumno lo
+aprobó sin cambios.
+
+```text
+## Contexto
+Sigo con el repositorio `henry-ai-engineering_pt-08_PI-M1_franco-dauro` (Proyecto Integrador M1
+de Henry: triage de consultas de soporte de Nubbix). El paso 6 cerró la comparativa de modelos
+(extra credit): Gemini sigue como primario y `gpt-6-luna` como respaldo (D-48). `triage_v4` está
+vigente con los guardrails (D-42). Hay 122 tests. La entrega es entre el 04/12 y el 07/12 y se
+entrega un enlace público al repo. Windows 11 / PowerShell.
+
+## Tarea de este paso
+Dejar el repo listo para que lo corrija otra persona: README final, un arreglo chico, revisión
+de precios y modelos, prueba desde un clon limpio y revisión contra el checklist y la rúbrica del PI.
+
+## Requisitos
+- README con este orden: resumen de qué hace → "Resultados finales" (tabla corta: `v4` con
+  guardrails, global, holdout, adversarial, comparativa) → "Cómo funciona" con un diagrama que
+  incluya las compuertas de entrada (código 6) y de salida (código 7) → Instalación → Uso →
+  "Decisiones técnicas" (resumen de las principales con link a DECISIONES.md) → "Cómo se cumple
+  la consigna" (tabla corta: cada entregable y punto del checklist del PI con el link al archivo)
+  → las secciones por paso como están ahora (evals, técnica, seguridad, extra credit).
+- La línea de estado dice que el proyecto está terminado.
+- Uso con dos ejemplos reales de comando y respuesta, corridos por mí con Gemini: una consulta
+  normal (JSON de salida, código de salida y su línea de `data/metrics.jsonl`) y una bloqueada por
+  la compuerta de entrada (código 6, sin llamar al modelo). Se pegan tal cual salieron.
+- `src/metrics.py` escribe con `newline="\n"`, así `data/metrics.jsonl` no queda con CRLF en
+  Windows. Con un test.
+- Revisar en la documentación oficial los precios y si hay aviso de baja de `gemini-3.5-flash-lite`
+  y `gpt-6-luna`. Si algo cambió, avisarme antes de tocar nada. Si no cambió, se actualiza la fecha
+  de consulta en `config/pricing.json`.
+- Revisión contra el checklist y la rúbrica del PI: si falta algo, avisarme antes de agregarlo.
+- Prueba desde un clon limpio en mi PC, después del push: clonar en otra carpeta, crear el
+  entorno, instalar con `requirements.txt`, copiar `.env.example`, correr los tests y una consulta
+  real. Si algo falla, se corrige en un commit aparte.
+- Documentación: las decisiones nuevas en DECISIONES.md (desde D-49), si las hay; este prompt en
+  `docs/prompts_ia.md`. Sin entrada en el CHANGELOG, porque no cambia ningún prompt.
+- Tests con `unittest`, sin llamadas reales a las APIs.
+- Un commit con el arreglo y la documentación.
+
+## Fuera de alcance
+Evals o corridas nuevas, versiones nuevas del prompt, cambios en los guardrails, casos nuevos en
+los datasets, arreglar `exito_si` de ADV-06 o la inestabilidad de NX-008 (quedan como limitaciones
+escritas), FastAPI, caché y LLM-as-judge.
+
+## Terminado cuando
+- Pasan todos los tests.
+- El README tiene el orden de arriba, los dos ejemplos reales y la tabla de la consigna.
+- Precios y modelos revisados, con la fecha de hoy.
+- El clon limpio se instala y corre en mi PC sin preguntar nada.
+- Solo queda entregar el link.
+```
+
+**Cómo influyó en las decisiones** (detalle en [DECISIONES.md](DECISIONES.md), D-04 y D-49)
+- Antes del prompt, la IA clonó el repo público en su entorno: la instalación funcionó, pasaron los 122 tests y,
+  sin `.env`, la CLI cortó con un mensaje claro (código 5). Después revisó el repo contra la consigna y encontró
+  que el README no tenía ningún ejemplo de comando con su respuesta (lo pide el PI) y que la tabla de resultados
+  que se veía primero era la de `triage_v1`. De ahí salieron el orden del README y los dos ejemplos reales.
+- Precios: la IA revisó la documentación oficial el 26/11. No había cambios de precio ni avisos de baja. La página
+  de precios de Gemini ahora redirige a `aistudio.google.com/docs/pricing`, y se actualizó el link en
+  `config/pricing.json` (D-04).
+- CRLF: al revisar el archivo en la PC, la IA vio que las 822 líneas tenían CRLF porque Git para Windows las
+  convierte al descargar. Avisó que con `newline="\n"` solo el archivo iba a quedar mezclado, y el alumno eligió
+  sumar un `.gitattributes` para los `.jsonl` (D-49).
+- La revisión contra el checklist y la rúbrica no encontró entregables faltantes: solo los puntos del README que ya
+  estaban en el plan.

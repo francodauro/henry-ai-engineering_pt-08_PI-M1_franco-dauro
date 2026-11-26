@@ -22,7 +22,8 @@ class MetricsLog:
         """Agrega una línea con el timestamp UTC (ISO 8601) al principio y la devuelve."""
         line = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"), **record}
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a", encoding="utf-8") as f:
+        # newline="\n": en Windows, Python escribiría "\r\n" (CRLF); así el archivo queda igual en todos los sistemas.
+        with open(self.path, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
         return line
 

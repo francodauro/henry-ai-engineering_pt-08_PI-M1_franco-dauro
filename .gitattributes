@@ -1,0 +1,2 @@
+# Los .jsonl (métricas, dataset y corridas) quedan con fin de línea LF también en Windows (D-49).
+*.jsonl text eol=lf

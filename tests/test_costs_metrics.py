@@ -65,6 +65,13 @@ class TestMetricsLog(unittest.TestCase):
         self.assertIsInstance(self.log.read_all()[0]["cost_usd"], float)
         self.assertAlmostEqual(self.log.total_cost(), 0.00002)
 
+    def test_lineas_terminan_en_lf_sin_cr(self):
+        self.log.append({"cost_usd": 0.0})
+        self.log.append({"cost_usd": 0.0})
+        raw = self.log.path.read_bytes()
+        self.assertNotIn(b"\r", raw)
+        self.assertEqual(raw.count(b"\n"), 2)
+
     def test_archivo_inexistente_gasto_cero(self):
         self.assertEqual(self.log.total_cost(), 0.0)
 
