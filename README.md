@@ -9,7 +9,7 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: paso 5 — guardrails.** La CLI devuelve el contrato validado con **`triage_v4`**, la versión vigente desde este paso, y cada consulta pasa por una compuerta de entrada y una de salida. La suite adversarial se midió con y sin guardrails. El proyecto se construye paso a paso.
+> **Estado: paso 6 — comparativa de modelos (extra credit), criterio fijado antes de correr.** La CLI devuelve el contrato validado con **`triage_v4`** y cada consulta pasa por una compuerta de entrada y una de salida. Falta correr la comparativa entre Gemini y `gpt-6-luna`. El proyecto se construye paso a paso.
 
 ## Cómo funciona
 
@@ -265,13 +265,52 @@ ADV-10 muestra la otra mitad: *"Me cobraron dos veces este mes. Confirmame por e
 
 **Conclusión:** Con los guardrails activos, `triage_v4` cumple las seis condiciones del criterio que fijé antes de correr: holdout 100 % en las dos corridas con Gemini, global 98,75 % (`v1`: 97,5 %), ninguna categoría bajo el 70 %, ninguna consulta legítima bloqueada ni en revisión, ningún plazo vago entregado y la suite adversarial mitigada 10/10 en las dos corridas. Por eso **`triage_v4` pasa a ser la versión vigente**, con los guardrails siempre activos. Lo que más cambió no es la clasificación, sino lo que llega al cliente: Gemini siguió escribiendo "a la brevedad" (7 veces en 80 respuestas) y la compuerta de salida las sacó todas. El prompt reduce el problema; el código lo garantiza. En la suite adversarial, la compuerta de entrada frenó 7 ataques sin llamar al modelo, y los 3 que la regex no conoce los resistió el prompt. La compuerta de salida no tuvo que actuar, pero queda como última capa. Sin guardrails, `v4` sola también resistió los 10 ataques en las dos corridas: en esta suite, el valor de las compuertas no está en los ataques logrados (cero contra cero), sino en que 7 de cada 10 ataques no llegan al modelo, con un tercio de los tokens, y en que ningún plazo vago llega al cliente (sin la compuerta llegó uno). La suite no tiene un ataque que venza a `v4`, así que la compuerta de salida queda probada por los tests y por las evals, no por un ataque real. NX-008 sigue inestable (bien en 1 de 2 corridas). `v4` cuesta un 9 % más por acierto proyectado, por el bloque de seguridad.
 
+## Extra credit: comparativa de modelos
+
+El PI pide al menos un extra credit; este repo hace la **comparativa de modelos**: Gemini `gemini-3.5-flash-lite` (primario actual, plan gratuito) contra OpenAI `gpt-6-luna` (respaldo, pago), con `triage_v4` y los guardrails, que es lo que está en producción. La pregunta es si conviene pagar por `gpt-6-luna` como primario.
+
+```powershell
+# Cuatro corridas por modelo (las del 25/11 cuentan; ver D-44)
+python -m evals.runner --proveedor gemini --prompt v4
+python -m evals.runner --proveedor openai --prompt v4
+
+# Dos corridas de la suite adversarial sin guardrails con gpt-6-luna
+python -m evals.adversarial --proveedor openai --prompt v4 --sin-guardrails
+
+# Aplica el criterio y escribe evals/comparativa.md (no llama a ninguna API)
+python -m evals.comparativa
+```
+
+**Criterio fijado antes de correr (D-45).** `gpt-6-luna` pasa a ser el primario si cumple **todas** las condiciones de "no empeora" y **al menos una** de "gana". Si no, Gemini sigue como primario.
+
+| # | Condición | Tipo |
+|---|---|---|
+| 1 | Holdout promedio de sus 4 corridas ≥ el de Gemini | No empeora |
+| 2 | Ninguna categoría bajo 70 % en ninguna corrida | No empeora |
+| 3 | 0 consultas legítimas bloqueadas o en revisión | No empeora |
+| 4 | Suite adversarial sin guardrails 10/10 en sus 2 corridas | No empeora |
+| 5 | Costo proyectado ≤ USD 2 por mes (costo promedio por consulta × 12.000 consultas) | No empeora |
+| A | Global promedio mayor que el de Gemini | Gana |
+| B | Menos casos inestables que Gemini | Gana |
+| C | Gemini no alcanza el volumen del PI: pedidos por consulta de su peor corrida × 400 tickets por día > 500 (límite diario del plan gratuito) | Gana |
+
+Los pedidos por consulta salen de `data/metrics.jsonl`: incluyen los reintentos de red y de contrato, porque también gastan cupo (D-46). El reporte informa además, sin decidir, la latencia, los casos reintentados por errores del proveedor y los plazos vagos que escribe cada modelo antes de la compuerta.
+
+Si gana `gpt-6-luna`, el cambio es de configuración: `LLM_PROVIDER_ORDER=openai,gemini` (D-47).
+
+**Limitaciones:** el PI no dice cómo se reparten los 400 tickets en el día, así que el límite de 15 pedidos por minuto de Gemini no se puede evaluar; y el plan gratuito de Gemini no admite consultas reales de clientes, porque Google puede usar el contenido.
+
+### Resultados
+
+Pendiente: se completa después de las corridas.
+
 ## Estructura
 
 ```
 src/       código del servicio (src/llm/: proveedores y router)
 config/    precios por modelo (pricing.json)
 prompts/   prompts del triage versionados en YAML + CHANGELOG.md
-evals/     dataset de evaluación, runner, métricas, reporte y corridas (results/)
+evals/     dataset de evaluación, runner, métricas, reportes, comparativa de modelos y corridas (results/)
 data/      métricas de cada ejecución (data/metrics.jsonl)
 tests/     tests con unittest, sin llamadas a APIs
 docs/      documentación: decisiones (DECISIONES.md) y prompts usados con IA

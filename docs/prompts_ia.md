@@ -384,3 +384,91 @@ Moderador LLM, redacción de PII en la entrada, comparativa de modelos (paso 6).
   La IA redactó un borrador de la conclusión del README que el alumno revisó antes de commitear.
 - 26/11: con el cupo diario renovado, las dos corridas sin guardrails salieron completas (10/10 mitigados por el prompt).
   La IA revisó las 20 respuestas a mano y propuso documentar el efecto tal como se midió (D-43), sin agregar casos a la suite.
+
+---
+
+## Paso 6 — Extra credit: comparativa de modelos (26/11/2026)
+
+Esta vez el prompt no salió de un borrador del alumno. La IA listó los puntos que tenía que cubrir, el alumno
+tomó las decisiones una por una (corridas, qué tiene que ganar `gpt-6-luna`, qué no puede empeorar, el tope
+mensual y cómo entra el límite diario de Gemini), y con esas decisiones la IA redactó el prompt. El alumno lo
+aprobó sin cambios.
+
+```text
+## Contexto
+Sigo con el repositorio `henry-ai-engineering_pt-08_PI-M1_franco-dauro` (Proyecto Integrador M1
+de Henry: triage de consultas de soporte de Nubbix). El paso 5 cerró con `triage_v4` vigente y los
+guardrails siempre activos (D-42, D-43). Gemini `gemini-3.5-flash-lite` (plan gratuito: 500 pedidos
+por día y 15 por minuto) es el primario y `gpt-6-luna` el respaldo (D-26). D-33 dejó la comparativa
+de modelos para este paso, con su propio criterio. Windows 11 / PowerShell.
+
+## Tarea de este paso
+Extra credit del PI: comparativa de modelos. Comparar Gemini y `gpt-6-luna` con `triage_v4` y
+guardrails, y decidir con datos cuál queda como primario.
+
+## Requisitos
+- Decide solo `triage_v4` con guardrails, que es lo que está en producción. Las corridas de `v1`, `v2`
+  y `v3` con los dos modelos se muestran en el reporte, pero solo informan.
+- Corridas: 4 de `v4` con guardrails por modelo sobre los 40 casos. Se reusan las 3 del 25/11
+  (2 Gemini, 1 `gpt-6-luna`), porque desde entonces no cambió el código, el prompt, el dataset ni los
+  precios. Se suman 2 con Gemini y 3 con `gpt-6-luna` (≈ USD 0.019). Además, 2 corridas de la suite
+  adversarial **sin guardrails** con `gpt-6-luna` (≈ USD 0.004); Gemini ya tiene las suyas del 26/11.
+  Si `evals.adversarial` no acepta elegir el proveedor, agregarlo.
+- Criterio fijado y commiteado antes de correr. `gpt-6-luna` pasa a ser el primario (y Gemini el
+  respaldo) si cumple **todas** las de "no empeora" y **al menos una** de "gana":
+  No empeora:
+  (1) holdout promedio de sus 4 corridas ≥ el de Gemini;
+  (2) ninguna categoría bajo 70 % en ninguna de sus corridas;
+  (3) 0 consultas legítimas bloqueadas o en revisión;
+  (4) suite adversarial sin guardrails 10/10 mitigada en sus 2 corridas;
+  (5) costo proyectado ≤ USD 2 por mes = costo promedio por consulta de sus 4 corridas × 12.000
+      consultas (400 tickets por día, según la consigna del PI).
+  Gana:
+  (A) global promedio mayor que el de Gemini;
+  (B) menos casos inestables que Gemini;
+  (C) Gemini no alcanza el volumen del PI: pedidos por consulta de su **peor** corrida de las 4
+      × 400 > 500. Pedidos por consulta = intentos de red registrados en `data/metrics.jsonl` para esa
+      corrida ÷ 40; incluye los reintentos de red y de contrato, porque cuentan para el límite diario.
+  Si falla una de "no empeora" o no se cumple ninguna de "gana", Gemini sigue como primario.
+- El reporte suma una sección "Comparativa de modelos", regenerable sin API con `--desde`, con una
+  fila por condición del criterio y su resultado. Además, informa sin decidir: latencia promedio
+  (con reintentos y solo de la API), casos reintentados al final por error del proveedor y plazos
+  vagos escritos por el modelo antes de la compuerta. Mantiene la salvedad de que cada proveedor
+  cuenta los tokens distinto.
+- Si gana `gpt-6-luna`: se invierte el orden del router por configuración, sin tocar la lógica.
+  Se actualizan `.env.example`, los tests y el README.
+- Limitaciones a escribir: el PI no dice cómo se reparten los 400 tickets en el día, así que el
+  límite de 15 pedidos por minuto no se puede evaluar; el plan gratuito de Gemini puede usar los datos
+  enviados, así que no admite consultas reales de clientes.
+- Documentación: decisiones desde D-44 en DECISIONES.md; sección del extra credit en el README con la
+  tabla y la conclusión, que escribo yo (con ayuda si la necesito); este prompt en
+  `docs/prompts_ia.md`. Sin entrada en el CHANGELOG, porque no cambia ningún prompt.
+- Tests con `unittest`, sin llamadas reales a las APIs.
+- Dos commits: criterio y código antes de correr; resultados y decisión después.
+
+## Fuera de alcance
+Versiones nuevas del prompt, cambios a los guardrails o a la lista de plazos vagos, casos nuevos
+en los datasets (D-43), un tercer modelo, FastAPI, caché y LLM-as-judge.
+
+## Terminado cuando
+- Pasan todos los tests.
+- Hay 4 corridas completas de `v4` por modelo y 2 adversariales sin guardrails con `gpt-6-luna`.
+- El reporte muestra cada condición del criterio con su resultado.
+- El primario queda elegido con el criterio commiteado antes de correr, y su fundamento está escrito
+  en DECISIONES.md y en el README.
+```
+
+**Cómo influyó en las decisiones** (detalle en [DECISIONES.md](DECISIONES.md), D-44 a D-47)
+- El alumno pidió 4 corridas por modelo. La IA comprobó con `git diff` que desde las corridas del 25/11 no cambió
+  nada que afecte el resultado, y propuso reusarlas y sumar la adversarial sin guardrails con `gpt-6-luna`, porque
+  la seguridad solo estaba medida con Gemini (D-44).
+- Al armar el criterio, la IA marcó que "mejor en la suite adversarial" no se podía cumplir (Gemini ya mitigó 10/10)
+  y el alumno lo cambió por "no peor". También advirtió que el tope de USD 2 por mes queda justo (≈ USD 1,90 con la
+  única corrida de `gpt-6-luna` que había) y que el router ya manda a `gpt-6-luna` lo que Gemini no atiende por
+  cupo. El alumno eligió que el volumen decida, pero solo junto con las condiciones de calidad, seguridad y costo (D-45).
+- El volumen salió de la consigna del PI (unos 400 tickets por día). La IA midió en `data/metrics.jsonl` cuántos
+  pedidos usa una consulta (1,10 y 1,275 con `v4`) y comparó el registro del 25/11 con lo que marcó AI Studio, para
+  confirmar que los pedidos fallidos también gastan cupo. Entre el promedio y la peor corrida, el alumno eligió la
+  peor (D-45, D-46).
+- Al implementar, la comparativa quedó en un script aparte (`evals/comparativa.py` → `evals/comparativa.md`) en vez
+  de una sección de `evals/reporte.md`, porque junta dos suites y las métricas (D-47).
