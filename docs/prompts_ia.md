@@ -552,3 +552,49 @@ escritas), FastAPI, caché y LLM-as-judge.
   sumar un `.gitattributes` para los `.jsonl` (D-49).
 - La revisión contra el checklist y la rúbrica no encontró entregables faltantes: solo los puntos del README que ya
   estaban en el plan.
+
+---
+
+## Corrección posterior al paso 7 — README para quien corrige (27/11/2026)
+
+Con el repo terminado, el alumno releyó el README en GitHub pensando en quien lo va a corregir y le
+marcó a la IA tres problemas. No hubo un prompt redactado de antemano: se registran sus mensajes tal
+como los escribió. Del primero se omite un texto que pegó por error al principio (su pedido anterior,
+que no está en el README).
+
+```text
+antes de seguir comprediendo los pasos debo hacer un par de correcciones al readme final que se ve en github.
+Tener en cuenta que a este readme lo leerá un humano, que será mi profesor de IA Engineering
+
+[...]
+
+El lector no sabe:
+qué son los pasos. Esta fue una organización particular de organizar mi desarrollo con IA que el lector no conoce.
+qué es triage_v4. El lector no sabe, aunque lo intuya, qué es este archivo, dónde se ubica, el total de versiones de triage y sus diferencias, etc.
+
+Además dice "Arriba están el resultado final, la instalación y el uso; abajo, cómo se llegó a cada decisión, paso por paso." Esto es simplemente falso. Arriba de esta frase, para el ojo humano, no hay nada de lo que se indica.
+```
+
+```text
+En la primera tabla aparece repetidas veces la frase "No: no se cumplió el criterio"
+
+¿queda claro el criterio en ese punto de la lectura para un humano?
+```
+
+```text
+Si, estoy de acuerdo, una única y primera vez el concepto de holdout.
+```
+
+**Cómo influyó en el README**
+- La línea de estado decía "Arriba están…" estando al principio del archivo. Ahora dice qué viene primero y
+  qué después, con un link a la historia del proyecto.
+- Se agregaron dos tablas al principio. "Las versiones del prompt" explica qué son `triage_v1` a `v4`,
+  dónde están y cuál se usa. "Los pasos" explica que el proyecto se construyó en ocho pasos, cada uno con
+  sus commits.
+- La IA propuso una primera versión de la tabla de versiones que decía "no cumplió el criterio". La pregunta
+  del alumno mostró que el lector todavía no sabe cuál es ese criterio. Se agregó una frase que lo explica y una
+  columna con lo que falló o se cumplió en concreto, con los números del README.
+- "Holdout" se explica una sola vez, en su primera aparición. Se sacaron las otras dos explicaciones
+  ("Resultados finales" y la viñeta "Score por lote" de Evals), y esa viñeta ahora define `dev`, que no
+  estaba definido.
+- No cambia código, datos, prompts ni decisiones: no hay entrada nueva en DECISIONES.md ni en el CHANGELOG.

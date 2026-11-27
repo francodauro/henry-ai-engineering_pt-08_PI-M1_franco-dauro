@@ -9,7 +9,35 @@ Recibe una consulta en texto libre y devuelve un JSON validado con el contrato:
 
 donde `category` es `billing`, `technical`, `account` u `other`.
 
-> **Estado: terminado** (pasos 0 a 7). La CLI devuelve el contrato validado con **`triage_v4`**, con una compuerta de entrada y una de salida; Gemini es el proveedor primario y `gpt-6-luna` el respaldo. Arriba están el resultado final, la instalación y el uso; abajo, cómo se llegó a cada decisión, paso por paso.
+> **Estado: terminado.** Primero está lo que hace falta para corregir: los resultados finales, cómo funciona, la instalación, el uso con ejemplos reales y las decisiones técnicas. Después, en [Historia del proyecto, paso por paso](#historia-del-proyecto-paso-por-paso), cómo se llegó a cada decisión, con los resultados de cada etapa.
+
+### Las versiones del prompt
+
+El prompt de triage (las instrucciones que recibe el modelo) se guarda fuera del código, como un archivo YAML por versión en [prompts/](prompts/). Hay cuatro. Para decidir si una versión nueva reemplazaba a la vigente, antes de probarla se escribió y se commiteó una lista de condiciones que tenía que cumplir frente a la vigente: por ejemplo, no acertar menos categorías ni escribir más respuestas con plazos vagos como "a la brevedad". Después se aplicó tal cual, sin ajustarla a los resultados.
+
+| Versión | Qué es | ¿Se usa? | Por qué |
+|---|---|---|---|
+| `triage_v1` | Línea base: rol, contexto, tarea y formato, sin ejemplos | Ya no | La reemplazó `v4` |
+| `triage_v2` | `v1` + dos ejemplos (few-shot) | No | Falló 2 de sus 5 condiciones: acertó menos en el holdout (los 20 casos del dataset que se reservan para decidir entre versiones, no para diseñar el prompt): 97,5 % contra 100 %; y escribió más plazos vagos (8 contra 3) |
+| `triage_v3` | `v1` + otros dos ejemplos (few-shot) | No | Falló 2 de sus 5 condiciones: el caso que tenía que arreglar (NX-008) salió bien en una sola de dos corridas, y escribió más plazos vagos (6 contra 3) |
+| `triage_v4` | `v1` + reglas de seguridad contra ataques | **Sí, es la vigente** y la que usa la CLI por defecto | Cumplió sus 6 condiciones |
+
+El detalle de cada condición y sus resultados está en [Técnica elegida y por qué](#técnica-elegida-y-por-qué) y en [prompts/CHANGELOG.md](prompts/CHANGELOG.md).
+
+### Los pasos
+
+El proyecto se construyó en ocho pasos, cada uno con uno o más commits. En el resto del README, "paso N" remite a esta tabla:
+
+| Paso | Qué se hizo | Commits |
+|---|---|---|
+| 0 | Esqueleto: carpetas y archivos de configuración | `6288512` |
+| 1 | Cliente para Gemini y OpenAI con reintentos, respaldo, costo y métricas | `2db7b37` |
+| 2 | Contrato Pydantic, tool calling y prompt `triage_v1` | `0bcbf3f` |
+| 3 | Dataset de 40 casos y suite de evals | `74f5ade`, `a0ebc33` |
+| 4 | `triage_v2` y `triage_v3` contra `v1`: sigue `v1` | `2a4587d`, `028c371`, `3852195` |
+| 5 | Guardrails y `triage_v4`: queda `v4` | `c61c028`, `31c64c4`, `d47fe6e` |
+| 6 | Extra credit, comparativa de modelos: Gemini sigue como primario | `408a1bd`, `9c93239` |
+| 7 | README final, revisión de precios y prueba desde un clon limpio | `82e8774` |
 
 ## Resultados finales
 
@@ -18,7 +46,7 @@ Versión vigente: **`triage_v4` con guardrails**, Gemini `gemini-3.5-flash-lite`
 | Qué se midió | Gemini (primario) | `gpt-6-luna` (respaldo) |
 |---|---:|---:|
 | Categoría correcta, global (40 casos × 4 corridas) | 98,1 % | 98,1 % |
-| Holdout (los 20 casos que no se usaron para diseñar) | 100 % | 100 % |
+| Holdout | 100 % | 100 % |
 | Peor categoría | 90 % (billing) | 90 % (billing) |
 | Consultas legítimas bloqueadas o en revisión | 0 | 0 |
 | Plazos vagos ("a la brevedad") entregados al cliente | 0 (el modelo escribió 11 y la compuerta los sacó) | 0 |
@@ -250,7 +278,7 @@ Cómo mide:
 - **Un proveedor por corrida, sin respaldo**: el score es de un solo modelo.
 - **Exact match** de la categoría, global y por categoría, con un **umbral de 70 % por categoría** fijado antes de correr. Una categoría por debajo es una regresión.
 - **Plazos vagos**: si una sola respuesta para el cliente dice "a la brevedad", "en breve", "lo antes posible" u otra expresión de [src/vague_timing.py](src/vague_timing.py), también es una regresión, aunque la categoría sea correcta.
-- **Score por lote**: `dev` sirve para diseñar un prompt y `holdout` para decidir, así una versión no se elige con los mismos casos con los que se ajustó.
+- **Score por lote**: además del global, se mide aparte cada lote: `dev` (los 20 casos con los que se diseñan los prompts) y `holdout`, así una versión no se elige con los mismos casos con los que se ajustó.
 - **Casos inestables**: con varias corridas de la misma versión, el reporte marca los casos cuya categoría cambia entre corridas (ahí una diferencia puede ser azar).
 - **Costo por acierto** = costo total ÷ aciertos. El reporte comprueba que el costo de la corrida coincide con la suma de `cost_usd` de sus líneas en `data/metrics.jsonl`. Como Gemini cuesta 0, también se muestra el costo **proyectado** con los precios de `gpt-6-luna` (aproximado: cada proveedor cuenta los tokens distinto).
 - Si el proveedor no responde un caso (por ejemplo, "high demand"), se lo reintenta una vez al final. Si sigue sin respuesta, la corrida queda **incompleta** y no se usa para comparar.
